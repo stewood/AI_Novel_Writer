@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from novelwriter_idea.agents.facilitator_agent import FacilitatorAgent, GenerationStage
+from novel_writer.agents.facilitator_agent import FacilitatorAgent, GenerationStage
 
 @pytest.fixture
 def mock_llm_config():
@@ -156,7 +156,7 @@ def sample_documentation_result():
 
 def test_facilitator_agent_initialization(mock_llm_config, mock_logger, mock_data_path, mock_subgenres):
     """Test Facilitator Agent initialization."""
-    with patch("novelwriter_idea.agents.genre_vibe_agent.GenreVibeAgent._load_subgenres", return_value=mock_subgenres):
+    with patch("novel_writer.agents.genre_vibe_agent.GenreVibeAgent._load_subgenres", return_value=mock_subgenres):
         agent = FacilitatorAgent(mock_llm_config, mock_logger)
         assert agent.state.stage == GenerationStage.INITIAL
         mock_logger.info.assert_called_with("Initializing Facilitator Agent")
@@ -167,8 +167,8 @@ async def test_run_genre_selection(mock_llm_config, mock_logger, mock_data_path,
     # Set up mock response
     mock_llm_config.get_completion.return_value = json.dumps(sample_genre_result)
 
-    with patch("novelwriter_idea.agents.genre_vibe_agent.GenreVibeAgent._load_subgenres", return_value=mock_subgenres), \
-         patch("novelwriter_idea.agents.genre_vibe_agent.random.choice") as mock_random:
+    with patch("novel_writer.agents.genre_vibe_agent.GenreVibeAgent._load_subgenres", return_value=mock_subgenres), \
+         patch("novel_writer.agents.genre_vibe_agent.random.choice") as mock_random:
         # Make random.choice return "Science Fiction" for main genre and "Cyberpunk" for subgenre
         mock_random.side_effect = ["Science Fiction", "Cyberpunk"]
         agent = FacilitatorAgent(mock_llm_config, mock_logger)
@@ -187,7 +187,7 @@ async def test_run_pitch_generation(mock_llm_config, mock_logger, mock_data_path
         "pitches": sample_pitches
     })
 
-    with patch("novelwriter_idea.agents.genre_vibe_agent.GenreVibeAgent._load_subgenres", return_value=mock_subgenres):
+    with patch("novel_writer.agents.genre_vibe_agent.GenreVibeAgent._load_subgenres", return_value=mock_subgenres):
         agent = FacilitatorAgent(mock_llm_config, mock_logger)
         agent.state.genre = "Science Fiction"
         agent.state.tone = "Thoughtful"
@@ -216,7 +216,7 @@ async def test_run_critic_evaluation(mock_llm_config, mock_logger, mock_data_pat
         "improvement_suggestions": ["Focus on character relationships"]
     })
 
-    with patch("novelwriter_idea.agents.genre_vibe_agent.GenreVibeAgent._load_subgenres", return_value=mock_subgenres):
+    with patch("novel_writer.agents.genre_vibe_agent.GenreVibeAgent._load_subgenres", return_value=mock_subgenres):
         agent = FacilitatorAgent(mock_llm_config, mock_logger)
         agent.state.genre = "Science Fiction"
         agent.state.tone = "Thoughtful"
@@ -242,7 +242,7 @@ async def test_run_pitch_improvement(mock_llm_config, mock_logger, mock_data_pat
         "elements_preserved": ["Core scientific premise", "Time travel concept"]
     })
 
-    with patch("novelwriter_idea.agents.genre_vibe_agent.GenreVibeAgent._load_subgenres", return_value=mock_subgenres):
+    with patch("novel_writer.agents.genre_vibe_agent.GenreVibeAgent._load_subgenres", return_value=mock_subgenres):
         agent = FacilitatorAgent(mock_llm_config, mock_logger)
         agent.state.genre = "Science Fiction"
         agent.state.tone = "Thoughtful"
@@ -276,7 +276,7 @@ async def test_run_pitch_selection(mock_llm_config, mock_logger, mock_data_path,
         ]
     })
 
-    with patch("novelwriter_idea.agents.genre_vibe_agent.GenreVibeAgent._load_subgenres", return_value=mock_subgenres):
+    with patch("novel_writer.agents.genre_vibe_agent.GenreVibeAgent._load_subgenres", return_value=mock_subgenres):
         agent = FacilitatorAgent(mock_llm_config, mock_logger)
         agent.state.genre = "Science Fiction"
         agent.state.tone = "Thoughtful"
@@ -339,7 +339,7 @@ async def test_run_trope_analysis(mock_llm_config, mock_logger, mock_data_path, 
         ]
     })
 
-    with patch("novelwriter_idea.agents.genre_vibe_agent.GenreVibeAgent._load_subgenres", return_value=mock_subgenres):
+    with patch("novel_writer.agents.genre_vibe_agent.GenreVibeAgent._load_subgenres", return_value=mock_subgenres):
         agent = FacilitatorAgent(mock_llm_config, mock_logger)
         agent.state.genre = "Science Fiction"
         agent.state.tone = "Thoughtful"
@@ -364,7 +364,7 @@ async def test_run_documentation(mock_llm_config, mock_logger, mock_data_path, m
         # Set up mock response
         mock_llm_config.get_completion.return_value = json.dumps(sample_documentation_result)
 
-        with patch("novelwriter_idea.agents.genre_vibe_agent.GenreVibeAgent._load_subgenres", return_value=mock_subgenres):
+        with patch("novel_writer.agents.genre_vibe_agent.GenreVibeAgent._load_subgenres", return_value=mock_subgenres):
             agent = FacilitatorAgent(mock_llm_config, mock_logger)
             agent.state.genre = "Science Fiction"
             agent.state.tone = "Thoughtful"
@@ -426,7 +426,7 @@ async def test_process_success(mock_llm_config, mock_logger, mock_data_path, moc
             json.dumps(sample_documentation_result)
         ]
 
-        with patch("novelwriter_idea.agents.genre_vibe_agent.GenreVibeAgent._load_subgenres", return_value=mock_subgenres):
+        with patch("novel_writer.agents.genre_vibe_agent.GenreVibeAgent._load_subgenres", return_value=mock_subgenres):
             agent = FacilitatorAgent(mock_llm_config, mock_logger)
             agent.state.output_path = Path(temp_dir)
             await agent.process()
@@ -439,7 +439,7 @@ async def test_process_error_handling(mock_llm_config, mock_logger, mock_data_pa
     # Set up mock to raise an exception
     mock_llm_config.get_completion.side_effect = Exception("LLM Error")
 
-    with patch("novelwriter_idea.agents.genre_vibe_agent.GenreVibeAgent._load_subgenres", return_value=mock_subgenres):
+    with patch("novel_writer.agents.genre_vibe_agent.GenreVibeAgent._load_subgenres", return_value=mock_subgenres):
         agent = FacilitatorAgent(mock_llm_config, mock_logger)
         await agent.process()
         assert agent.state.stage == GenerationStage.ERROR

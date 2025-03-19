@@ -10,8 +10,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 import yaml
 
-from novelwriter_idea.agents.meeting_recorder_agent import MeetingRecorderAgent
-from novelwriter_idea.config.llm import LLMConfig
+from novel_writer.agents.meeting_recorder_agent import MeetingRecorderAgent
+from novel_writer.config.llm import LLMConfig
 
 @pytest.fixture
 def mock_llm_config():

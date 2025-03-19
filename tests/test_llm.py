@@ -4,8 +4,8 @@ import os
 import logging
 from pathlib import Path
 
-from novelwriter_idea.config.llm import LLMConfig
-from novelwriter_idea.config.logging import setup_logging, SUPERDEBUG
+from novel_writer.config.llm import LLMConfig
+from novel_writer.config.logging import setup_logging, SUPERDEBUG
 
 def test_llm_basic():
     """Test basic LLM functionality with SUPERDEBUG logging."""

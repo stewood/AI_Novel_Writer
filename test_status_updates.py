@@ -9,15 +9,16 @@ import sys
 import logging
 import time
 from pathlib import Path
-from src.novelwriter_idea.config.logging import setup_logging, SUPERDEBUG
+from src.novel_writer.config.logging import setup_logging, SUPERDEBUG
+from src.novel_writer.cli import print_status
 
 # Get the root logger first
 logger = logging.getLogger()
 
 # Setup logging - no console output, but file logging enabled
 setup_logging(
-    level=SUPERDEBUG,  # Use SUPERDEBUG to capture everything
-    console=False,     # This is key - no console logging
+    level=logging.INFO, 
+    console=False,  # This is key - no console logging
     log_file="logs/test_status_updates.log"
 )
 

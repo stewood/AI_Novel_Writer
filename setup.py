@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="novelwriter_idea",
+    name="novel_writer",
     version="0.1.0",
     packages=find_packages(where="src"),
     package_dir={"": "src"},
@@ -26,7 +26,7 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            "novelwriter_idea=novelwriter_idea.cli:main",
+            "novel_writer=novel_writer.cli:main",
         ],
     },
     python_requires=">=3.8",

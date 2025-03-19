@@ -14,7 +14,7 @@ A powerful CLI tool that uses AI agents to generate unique and compelling novel 
 ## Installation
 
 ```bash
-pip install novelwriter_idea
+pip install novel_writer
 ```
 
 ## Usage
@@ -22,7 +22,7 @@ pip install novelwriter_idea
 Generate a new story idea:
 
 ```bash
-novelwriter_idea idea [OPTIONS]
+novel_writer idea [OPTIONS]
 
 Options:
   --genre TEXT     Specify a genre (optional)

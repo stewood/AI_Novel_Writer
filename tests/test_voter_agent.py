@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from novelwriter_idea.agents.voter_agent import VoterAgent
-from novelwriter_idea.config.llm import LLMConfig
+from novel_writer.agents.voter_agent import VoterAgent
+from novel_writer.config.llm import LLMConfig
 
 @pytest.fixture
 def mock_llm_config():

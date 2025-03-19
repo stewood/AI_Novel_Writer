@@ -5,8 +5,8 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from novelwriter_idea.agents.genre_vibe_agent import GenreVibeAgent
-from novelwriter_idea.config.llm import LLMConfig
+from novel_writer.agents.genre_vibe_agent import GenreVibeAgent
+from novel_writer.config.llm import LLMConfig
 
 @pytest.fixture
 def mock_llm_config():

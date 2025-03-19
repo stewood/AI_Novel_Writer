@@ -15,9 +15,9 @@ from typing import Dict, List, Any
 # Add the project root to the Python path
 sys.path.append(".")
 
-from src.novelwriter_idea.agents.pitch_generator_agent import PitchGeneratorAgent
-from src.novelwriter_idea.config.llm import LLMConfig
-from src.novelwriter_idea.config.logging import setup_logging, SUPERDEBUG
+from src.novel_writer.agents.pitch_generator_agent import PitchGeneratorAgent
+from src.novel_writer.config.llm import LLMConfig
+from src.novel_writer.config.logging import setup_logging, SUPERDEBUG
 
 # Configure logging
 setup_logging(level=SUPERDEBUG, console=True, log_file="logs/test_pitch_generator_nanopunk.log")

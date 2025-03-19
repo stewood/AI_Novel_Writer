@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from novelwriter_idea.agents.pitch_generator_agent import PitchGeneratorAgent
-from novelwriter_idea.config.llm import LLMConfig
+from novel_writer.agents.pitch_generator_agent import PitchGeneratorAgent
+from novel_writer.config.llm import LLMConfig
 
 @pytest.fixture
 def mock_llm_config():
