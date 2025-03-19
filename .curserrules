@@ -1,0 +1,55 @@
+# Cursor AI Assistant Rules
+
+## Documentation Maintenance
+1. Keep docs/SPEC.md and docs/TECHNICAL.md up to date with any code changes
+2. Update documentation when:
+   - Adding new features or commands
+   - Modifying existing functionality
+   - Changing configuration options
+   - Updating dependencies
+3. Ensure documentation reflects current implementation
+4. Add examples for new features
+5. Update API references when interfaces change
+
+## Code Changes
+1. Follow PEP 8 style guide
+2. Write tests for new functionality
+3. Update existing tests when modifying code
+4. Use type hints consistently
+5. Document public APIs
+
+## Git Workflow
+1. Use conventional commit messages
+2. Create feature branches for new work
+3. Update documentation before merging
+4. Keep commits focused and atomic
+
+## Error Handling
+1. Use custom exceptions for specific cases
+2. Provide detailed error messages
+3. Log errors with context
+4. Implement recovery strategies
+
+## Performance
+1. Use async/await for I/O operations
+2. Implement caching where appropriate
+3. Monitor API rate limits
+4. Profile code for bottlenecks
+
+## Security
+1. Never commit sensitive data
+2. Use environment variables for secrets
+3. Validate user input
+4. Follow security best practices
+
+## Testing
+1. Maintain test coverage
+2. Use appropriate test types
+3. Mock external dependencies
+4. Test edge cases
+
+## Logging
+1. Use appropriate log levels
+2. Include context in messages
+3. Don't log sensitive data
+4. Follow logging best practices 
