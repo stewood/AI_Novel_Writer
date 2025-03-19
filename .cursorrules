@@ -1,0 +1,93 @@
+You are building a Python CLI tool called novelwriter_idea.
+
+Start by reading the full instruction list below and brainstorming the best structure before generating any code.
+
+Do not begin writing any modules until you have planned out the folder structure, agent layout, logging config, CLI logic, and data sources.
+
+After planning, create the scaffold including the CLI entry point, agents folder, logs folder, ideas output folder, and utility modules.
+
+The CLI tool will support multiple subcommands.
+
+The first subcommand to implement is novelwriter_idea idea. This command runs the idea generation workflow.
+
+The idea command will support optional flags: --genre, --tone, --themes, and --output.
+
+If no genre is specified, randomly select one subgenre from a list of 100 curated science fiction and fantasy subgenres.
+
+Store the subgenres list in a separate data file such as subgenres.json, subgenres.yaml, or a Python list.
+
+Examples of subgenres to include: solarpunk, biopunk, cyberpunk, science fantasy, grimdark, gaslamp fantasy, mythic fantasy, hopepunk, cozy fantasy.
+
+Log the selected subgenre and its broader category (sci-fi or fantasy) at INFO level when randomly selected.
+
+If the user provides --output, save the result to the specified path.
+
+If no --output path is provided, create a folder structure in the current working directory: ideas/story-title-or-untitled/, and save the file inside that folder.
+
+If no title is available yet, use "untitled" as the folder name.
+
+Generate the filename using the story title or "untitled", followed by a timestamp in the format YYYYMMDD-HHMMSS.md.
+
+Before writing the file, sanitize or slugify the title to remove unsafe characters or whitespace for filenames.
+
+Print the full output path to the console after saving the file.
+
+Set up a logging system using Python’s built-in logging library.
+
+Support the following log levels: ERROR, WARN, INFO, DEBUG, and SUPERDEBUG.
+
+INFO logs should include the major milestones of the process.
+
+DEBUG logs should include intermediate decisions, prompt data, and key variable values.
+
+SUPERDEBUG should log every function call, prompt sent, LLM response received, and internal routing for full traceability.
+
+Log files should be saved to logs/novelwriter.log by default.
+
+Allow logging output to both console and file. Add options to toggle them independently if desired.
+
+The Facilitator Agent will act as the conductor and orchestrate the entire process, coordinating all other agents.
+
+Use agent orchestration, not a linear chain. The Facilitator Agent should make decisions about which agents to run, when, and how often.
+
+When novelwriter_idea idea is executed, the Facilitator Agent will initiate the process.
+
+First, the Facilitator Agent will call the Genre and Vibe Generator Agent to determine the genre, tone, and themes to explore.
+
+Next, the Facilitator Agent will call the Pitch Generator Agent to generate multiple elevator pitches using the genre input.
+
+The Facilitator Agent will then call the Critic Agent to evaluate each pitch based on originality, emotional clarity, genre fit, and uniqueness.
+
+If any pitches receive lower scores, the Facilitator Agent will call the Improver Agent to rewrite or enhance them.
+
+After pitches are reviewed and improved, the Facilitator Agent will call the Voter Agent to select the best one.
+
+Then, the Facilitator Agent will call the Tropemaster Agent to analyze the winning idea for overused tropes and suggest more original alternatives or twists.
+
+Finally, the Facilitator Agent will call the Meeting Recorder Agent to compile the decisions, evaluations, and selected idea into a Markdown file.
+
+The generated Markdown file will include a YAML frontmatter section with the following fields:
+- doc_type (set to "idea")
+- doc_id (unique identifier like idea_pitch_001 or idea_20250319_153000)
+- status (set to "winner")
+- version (e.g. v1)
+- tags (a list including genre, tone, themes, and creation flags like AI_generated)
+- title (generated title or "Untitled")
+- elevator_pitch (1–2 sentence hook)
+- genre (main genre or subgenre)
+- tone (emotional/narrative style)
+- themes (list of 2–5 core themes)
+- summary (a paragraph expanding on the story concept)
+- notes (a log of creative rationale or agent insights)
+- tropes (list of tropes detected by the Tropemaster Agent)
+- trope_suggestions (alternative twists or improvements)
+
+Save the final Markdown file to the correct folder and confirm successful write with a log and console print.
+
+Ensure each agent’s logic is modular and reusable. Store them in an agents/ directory or as separate modules.
+
+Design the system to allow for future additions of agents or CLI commands, such as outlining or scene generation.
+
+The system should support generating multiple unique ideas into a vault of idea files for future use.
+
+End of instruction list.
