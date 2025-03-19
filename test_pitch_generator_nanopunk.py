@@ -1,27 +1,24 @@
 #!/usr/bin/env python
-"""Test script for diagnosing PitchGeneratorAgent issues with nanopunk genre.
+"""Test script for the PitchGeneratorAgent with nanopunk genre.
 
-This script directly calls the PitchGeneratorAgent with similar parameters to what
-was used in the logs, allowing us to diagnose the issue with missing pitch data.
+This script tests the ability of the PitchGeneratorAgent to generate
+creative story pitches for the nanopunk subgenre of science fiction.
 """
 
-import asyncio
-import json
-import logging
 import os
 import sys
-from typing import Dict, List, Any
+import logging
+import asyncio
+import json
+from pathlib import Path
 
-# Add the project root to the Python path
-sys.path.append(".")
+# Set up custom logging
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+logger = logging.getLogger(__name__)
 
-from src.novel_writer.agents.pitch_generator_agent import PitchGeneratorAgent
-from src.novel_writer.config.llm import LLMConfig
-from src.novel_writer.config.logging import setup_logging, SUPERDEBUG
-
-# Configure logging
-setup_logging(level=SUPERDEBUG, console=True, log_file="logs/test_pitch_generator_nanopunk.log")
-logger = logging.getLogger("test_script")
+from novel_writer.agents.pitch_generator_agent import PitchGeneratorAgent
+from novel_writer.config.llm import LLMConfig
+from novel_writer.config.logging import setup_logging, SUPERDEBUG
 
 async def test_pitch_generation():
     """Test the PitchGeneratorAgent with nanopunk genre parameters."""

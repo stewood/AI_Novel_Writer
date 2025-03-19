@@ -1,11 +1,14 @@
 """Tests for the CriticAgent class."""
 
+import os
+import asyncio
+import logging
 import json
 import pytest
 from unittest.mock import MagicMock, patch
 
-from src.novel_writer.agents.critic_agent import CriticAgent
-from src.novel_writer.config.llm import LLMConfig
+from novel_writer.agents.critic_agent import CriticAgent
+from novel_writer.config.llm import LLMConfig
 
 @pytest.fixture
 def mock_llm_config():

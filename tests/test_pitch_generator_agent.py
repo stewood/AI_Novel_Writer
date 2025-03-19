@@ -1,11 +1,14 @@
 """Tests for the PitchGeneratorAgent class."""
 
+import os
+import asyncio
+import logging
 import json
 import pytest
 from unittest.mock import MagicMock, patch
 
-from src.novel_writer.agents.pitch_generator_agent import PitchGeneratorAgent
-from src.novel_writer.config.llm import LLMConfig
+from novel_writer.agents.pitch_generator_agent import PitchGeneratorAgent
+from novel_writer.config.llm import LLMConfig
 
 
 @pytest.fixture

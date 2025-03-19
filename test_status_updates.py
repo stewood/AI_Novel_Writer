@@ -1,16 +1,19 @@
 #!/usr/bin/env python
-"""Test script for status updates without console logging.
+"""Test script for status updates and progress tracking.
 
-This script simulates the behavior of the status update mechanism
-while keeping detailed logs in a file only.
+This script tests the status update and progress tracking functionality
+used in the command-line interface.
 """
 
+import os
+import io
 import sys
 import logging
+from unittest.mock import patch
 import time
 from pathlib import Path
-from src.novel_writer.config.logging import setup_logging, SUPERDEBUG
-from src.novel_writer.cli import print_status
+from novel_writer.config.logging import setup_logging, SUPERDEBUG
+from novel_writer.cli import print_status
 
 # Get the root logger first
 logger = logging.getLogger()

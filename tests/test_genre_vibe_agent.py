@@ -55,15 +55,22 @@ def test_select_genre_invalid(mock_llm_config, sample_subgenres):
     assert subgenre in agent.subgenres[main_genre]
 
 @pytest.mark.integration
-def test_generate_tone_and_themes(mock_llm_config, sample_subgenres):
+@pytest.mark.asyncio
+async def test_generate_tone_and_themes(mock_llm_config, sample_subgenres):
     """Test tone and themes generation."""
-    mock_response = {
-        "tone": "dark and gritty",
-        "themes": ["redemption", "sacrifice", "hope"]
-    }
-    mock_llm_config.get_completion.return_value = json.dumps(mock_response)
+    mock_response = """# Tone and Themes
+
+## Tone
+dark and gritty
+
+## Themes
+- redemption
+- sacrifice
+- hope
+"""
+    mock_llm_config.get_completion.return_value = mock_response
     
     agent = GenreVibeAgent(mock_llm_config, data_path=sample_subgenres)
-    tone, themes = agent.generate_tone_and_themes("fantasy", "grimdark")
+    tone, themes = await agent.generate_tone_and_themes("fantasy", "grimdark")
     assert tone == "dark and gritty"
     assert themes == ["redemption", "sacrifice", "hope"] 

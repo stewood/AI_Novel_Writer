@@ -13,9 +13,11 @@ import sys
 import traceback
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Callable
+from dotenv import load_dotenv
+import click
 
 from novel_writer.agents.facilitator_agent import FacilitatorAgent
-from novel_writer.config.llm import LLMConfig
+from novel_writer.config.llm import LLMConfig, APIKeyManager
 from novel_writer.config.logging import setup_logging, SUPERDEBUG
 
 # Initialize logger
@@ -92,7 +94,7 @@ def print_status(message: str, emoji: str = "📝") -> None:
 def setup_llm_config() -> LLMConfig:
     """Set up the LLM configuration.
     
-    Retrieves API keys from environment variables and initializes
+    Retrieves API keys from .env file and initializes
     the LLM configuration with appropriate settings.
     
     Returns:
@@ -103,22 +105,47 @@ def setup_llm_config() -> LLMConfig:
     """
     logger.debug("Setting up LLM configuration")
     
-    # Get API key from environment variable
-    api_key = os.environ.get("OPENROUTER_API_KEY")
-    if not api_key:
-        error_msg = "OPENROUTER_API_KEY environment variable not set"
+    # Load environment variables from .env file
+    env_path = Path('.env')
+    if env_path.exists():
+        logger.debug(f"Loading environment variables from {env_path.absolute()}")
+        load_dotenv(dotenv_path=env_path)
+    else:
+        logger.warning(f".env file not found at {env_path.absolute()}, using system environment variables")
+    
+    # Initialize API key manager
+    key_manager = APIKeyManager()
+    
+    # Get free API key from environment variable
+    free_api_key = os.environ.get("OPENROUTER_FREE_API_KEY")
+    if free_api_key:
+        logger.debug("Found OPENROUTER_FREE_API_KEY in environment variables")
+        key_manager.add_free_key(free_api_key)
+    
+    # Get paid API key from environment variable
+    paid_api_key = os.environ.get("OPENROUTER_API_KEY")
+    if paid_api_key:
+        logger.debug("Found OPENROUTER_API_KEY in environment variables")
+        key_manager.add_paid_key(paid_api_key)
+    
+    # Ensure we have at least one key
+    if not free_api_key and not paid_api_key:
+        error_msg = "No API keys found in environment variables"
         logger.error(error_msg)
         raise EnvironmentError(
-            "OPENROUTER_API_KEY environment variable is required. "
-            "Please set it to your OpenRouter API key."
+            "Either OPENROUTER_FREE_API_KEY or OPENROUTER_API_KEY environment variable is required. "
+            "Please set at least one of these in your .env file or system environment variables."
         )
     
-    logger.debug("Found OPENROUTER_API_KEY in environment variables")
-    
-    # Initialize LLM configuration
-    llm_config = LLMConfig(api_key=api_key)
+    # Initialize LLM configuration with the key manager
+    llm_config = LLMConfig(api_key_manager=key_manager)
     logger.info("LLM configuration initialized successfully")
+    logger.debug(f"Free API keys: {len(key_manager.free_keys)}")
+    logger.debug(f"Paid API keys: {len(key_manager.paid_keys)}")
+    
+    # Log detailed configuration at SUPERDEBUG level
     logger.superdebug(f"LLM config: {llm_config.__dict__}")
+    
     return llm_config
 
 async def run_idea_command(args: argparse.Namespace) -> Dict[str, Any]:
@@ -584,70 +611,35 @@ async def _generate_idea_with_progress(
         print_status(f"Error: {error_msg}", "❌")
         return {"status": "error", "error": error_msg}
 
-def main():
-    """Main entry point for the CLI.
-    
-    Parses command line arguments, sets up logging, and routes
-    to the appropriate command handler.
-    """
-    logger.debug("Parsing command line arguments")
-    
-    parser = create_parser()
-    args = parser.parse_args()
-    
-    # Set up logging
-    logger.debug("Setting up logging configuration")
-    
-    log_level_name = args.log_level
-    log_level = getattr(logging, log_level_name, logging.INFO)
-    if log_level_name == "SUPERDEBUG":
-        log_level = SUPERDEBUG
-        
-    setup_logging(
-        log_file=args.log_file,
-        level=log_level,
-        console=args.console_log
+@click.group()
+def cli():
+    """AI-powered novel writing assistant."""
+    pass
+
+@cli.command()
+@click.option('--genre', help='Specify a genre for the story')
+@click.option('--tone', help='Specify the emotional/narrative tone')
+@click.option('--themes', multiple=True, help='Specify themes to explore')
+@click.option('--output', help='Path for the output file')
+@click.option('--log-level', type=click.Choice(['ERROR', 'WARN', 'INFO', 'DEBUG', 'SUPERDEBUG']), default='INFO', help='Set the logging level')
+@click.option('--log-file', help='Path to the log file')
+@click.option('--console-log', is_flag=True, help='Enable detailed logging to console')
+def idea(genre, tone, themes, output, log_level, log_file, console_log):
+    """Generate a novel idea."""
+    # Convert Click arguments to argparse namespace
+    args = argparse.Namespace(
+        command='idea',
+        genre=genre,
+        tone=tone,
+        themes=list(themes) if themes else None,
+        output=output,
+        log_level=log_level,
+        log_file=log_file,
+        console_log=console_log
     )
     
-    # Display startup information
-    logger.info(f"Novelwriter idea CLI started")
-    logger.info(f"Command: {args.command or 'None'}")
-    logger.superdebug(f"Arguments: {args}")
-    
-    try:
-        # Route to appropriate command
-        if args.command == "idea":
-            # Run the idea command
-            result = asyncio.run(run_idea_command(args))
-            
-            # Check for errors
-            if result.get("status") == "error":
-                logger.error(f"Idea command failed: {result.get('error', 'Unknown error')}")
-                sys.exit(1)
-                
-            logger.info("Idea command completed successfully")
-            sys.exit(0)
-            
-        elif args.command is None:
-            logger.error("No command specified")
-            parser.print_help()
-            sys.exit(1)
-            
-        else:
-            logger.error(f"Unknown command: {args.command}")
-            parser.print_help()
-            sys.exit(1)
-            
-    except KeyboardInterrupt:
-        logger.info("Command interrupted by user")
-        print("\n\n⚠️  Command interrupted by user")
-        sys.exit(130)
-        
-    except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
-        logger.error(traceback.format_exc())
-        print(f"\n❌ Error: {str(e)}")
-        sys.exit(1)
+    # Run the idea command
+    asyncio.run(run_idea_command(args))
 
-if __name__ == "__main__":
-    main() 
+if __name__ == '__main__':
+    cli() 
