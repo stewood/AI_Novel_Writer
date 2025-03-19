@@ -19,6 +19,10 @@ setup(
             "isort>=5.0.0",
             "flake8>=6.0.0",
         ],
+        "test": [
+            "pytest>=7.0.0",
+            "pytest-asyncio>=0.23.0",  # For async test support
+        ],
     },
     entry_points={
         "console_scripts": [
