@@ -10,6 +10,7 @@ setup(
         "pyyaml>=6.0.0",
         "python-slugify>=8.0.0",
         "rich>=13.0.0",  # For better console output
+        "openai>=1.0.0",  # For OpenRouter integration
     ],
     extras_require={
         "dev": [
