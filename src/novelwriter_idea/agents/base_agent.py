@@ -1,60 +1,48 @@
-"""Base agent class for all novel writer agents."""
+"""Base agent class for all agents."""
 
 import logging
-from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from novelwriter_idea.config.llm import LLMConfig
 
-class BaseAgent(ABC):
-    """Base class for all agents in the novel writer system."""
+class BaseAgent:
+    """Base class for all agents."""
     
-    def __init__(
-        self,
-        llm_config: LLMConfig,
-        logger: Optional[logging.Logger] = None
-    ):
+    def __init__(self, llm_config: LLMConfig):
         """Initialize the base agent.
         
         Args:
             llm_config: Configuration for the LLM client
-            logger: Optional logger instance. If not provided, creates a new one.
         """
         self.llm_config = llm_config
-        self.logger = logger or logging.getLogger(self.__class__.__name__)
+        self.logger = logging.getLogger(self.__class__.__name__)
         self.logger.debug(f"Initializing {self.__class__.__name__}")
-    
-    @abstractmethod
-    async def process(self, **kwargs) -> Dict[str, Any]:
-        """Process the agent's main task.
+
+    async def _get_llm_response(self, prompt: str) -> str:
+        """Get a response from the LLM.
         
         Args:
-            **kwargs: Additional arguments specific to the agent's implementation
+            prompt: The prompt to send to the LLM
             
         Returns:
-            Dict containing the results of the agent's processing
-        """
-        pass
-    
-    def _get_completion(
-        self,
-        prompt: str,
-        system_prompt: Optional[str] = None
-    ) -> str:
-        """Get a completion from the LLM.
-        
-        Args:
-            prompt: The user prompt to send to the LLM
-            system_prompt: Optional system prompt to guide the LLM's behavior
-            
-        Returns:
-            The LLM's response
+            The LLM's response as a string
         """
         self.logger.debug(f"Sending prompt to LLM: {prompt}")
+        
         try:
-            response = self.llm_config.get_completion(prompt, system_prompt)
-            self.logger.debug(f"Received response from LLM: {response}")
-            return response
+            response = await self.llm_config.get_completion(prompt)
+            self.logger.superdebug(f"Raw LLM response: {response}")
+            
+            # Clean up the response
+            cleaned = response.strip()
+            if cleaned.startswith("```") and cleaned.endswith("```"):
+                cleaned = cleaned[3:-3].strip()
+            if cleaned.startswith("markdown"):
+                cleaned = cleaned[8:].strip()
+                
+            self.logger.debug(f"Cleaned LLM response: {cleaned}")
+            return cleaned
+            
         except Exception as e:
-            self.logger.error(f"Error getting completion from LLM: {e}", exc_info=True)
+            self.logger.error(f"Error getting LLM response: {e}")
             raise 

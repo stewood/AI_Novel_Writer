@@ -1,117 +1,137 @@
 """Voter Agent for selecting the best story pitch."""
 
-import json
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List, Any
 
+from novelwriter_idea.config.llm import LLMConfig
 from novelwriter_idea.agents.base_agent import BaseAgent
+
+logger = logging.getLogger(__name__)
 
 class VoterAgent(BaseAgent):
     """Agent responsible for selecting the best story pitch."""
-    
-    def __init__(
-        self,
-        llm_config: Optional[Dict] = None,
-        logger: Optional[logging.Logger] = None
-    ):
+
+    def __init__(self, llm_config: LLMConfig):
         """Initialize the Voter Agent.
         
         Args:
             llm_config: Configuration for the LLM client
-            logger: Optional logger instance
         """
-        super().__init__(llm_config, logger)
-        self.logger.info("Initializing Voter Agent")
-    
-    async def process(
+        super().__init__(llm_config)
+        logger.info("Initializing Voter Agent")
+
+    def _format_pitches_and_evaluations(self, pitches, evaluations):
+        """Format pitches and evaluations for the prompt."""
+        formatted = []
+        for i, (pitch, evaluation) in enumerate(zip(pitches, evaluations)):
+            formatted.append(f"""# Pitch {i+1}
+## Title
+{pitch["title"]}
+
+## Hook
+{pitch["hook"]}
+
+## Premise
+{pitch["premise"]}
+
+## Main Conflict
+{pitch["main_conflict"]}
+
+## Unique Twist
+{pitch["unique_twist"]}
+
+## Evaluation
+### Scores
+{chr(10).join(f"- {name}: {score}" for name, score in evaluation["scores"].items())}
+
+### Key Strengths
+{chr(10).join(f"- {strength}" for strength in evaluation["key_strengths"])}
+
+### Areas for Improvement
+{chr(10).join(f"- {area}" for area in evaluation["areas_for_improvement"])}
+""")
+        return "\n".join(formatted)
+
+    async def select_best_pitch(
         self,
-        pitches: List[Dict],
-        evaluations: List[Dict],
+        pitches: List[Dict[str, str]],
+        evaluations: List[Dict[str, Any]],
         genre: str,
+        subgenre: str,
         tone: str,
         themes: List[str]
-    ) -> Dict:
-        """Select the best story pitch based on evaluations and additional analysis.
+    ) -> Dict[str, Any]:
+        """Select the best story pitch based on evaluations.
         
         Args:
-            pitches: List of story pitches (original and improved)
-            evaluations: List of evaluations for each pitch
-            genre: The target genre
-            tone: The target tone
-            themes: List of target themes
+            pitches: List of story pitches
+            evaluations: List of pitch evaluations
+            genre: The main genre category
+            subgenre: The specific subgenre
+            tone: The desired emotional/narrative tone
+            themes: List of core themes to explore
             
         Returns:
             Dict containing the selected pitch and rationale
         """
-        self.logger.info(f"Selecting best pitch from {len(pitches)} candidates")
-        
-        # Prepare pitch summaries for comparison
-        pitch_summaries = []
-        for i, (pitch, eval) in enumerate(zip(pitches, evaluations)):
-            summary = {
-                "index": i,
-                "title": pitch["title"],
-                "overall_score": eval["overall_score"],
-                "strengths": eval["strengths"],
-                "weaknesses": eval["weaknesses"]
-            }
-            pitch_summaries.append(summary)
-            
-        prompt = f"""Select the best story pitch from these candidates for a {genre} story:
+        prompt = f"""
+Given the following pitches and evaluations, select the best pitch for a {genre} story.
 
-The story should have a {tone} tone and explore these themes: {', '.join(themes)}.
+{self._format_pitches_and_evaluations(pitches, evaluations)}
 
-Candidates:
-{json.dumps(pitch_summaries, indent=2)}
+Please provide your selection in the following format:
 
-Consider:
-1. Overall quality and potential
-2. Fit with genre and themes
-3. Balance of strengths vs weaknesses
-4. Market appeal and target audience
-5. Development potential
+# Selection
+## Winner
+[Title of winning pitch]
 
-Format your response as JSON:
-{{
-    "selected_index": index_of_chosen_pitch,
-    "rationale": [
-        "reason 1 for selection",
-        "reason 2 for selection",
-        ...
-    ],
-    "potential_challenges": [
-        "challenge 1 to consider",
-        "challenge 2 to consider",
-        ...
-    ],
-    "development_recommendations": [
-        "recommendation 1",
-        "recommendation 2",
-        ...
-    ]
-}}
+## Selection Criteria
+[List key reasons for selection, considering quality, genre fit, themes, etc.]
+
+## Development Recommendations
+[List specific suggestions to strengthen the winning pitch]
+
+## Potential Challenges
+[List potential difficulties in executing the winning pitch]
 """
+
+        response = await self._get_llm_response(prompt)
+        self.logger.debug(f"Raw LLM response: {response}")
         
-        try:
-            self.logger.debug("Sending prompt to LLM for pitch selection")
-            response = self._get_completion(prompt)
+        # Parse response
+        selection = {
+            'winner': None,
+            'selection_criteria': [],
+            'development_recommendations': [],
+            'potential_challenges': []
+        }
+
+        current_section = None
+        for line in response.split('\n'):
+            line = line.strip()
+            if not line:
+                continue
+
+            if line.startswith('## '):
+                section = line[3:].lower()
+                if section == 'winner':
+                    current_section = 'winner'
+                elif section == 'selection criteria':
+                    current_section = 'selection_criteria'
+                elif section == 'development recommendations':
+                    current_section = 'development_recommendations'
+                elif section == 'potential challenges':
+                    current_section = 'potential_challenges'
+            elif current_section:
+                if current_section == 'winner':
+                    selection['winner'] = line
+                elif line.startswith('- '):
+                    selection[current_section].append(line[2:].strip())
+
+        if not selection['winner']:
+            raise ValueError("No winner found in response")
             
-            # Parse the response
-            selection = json.loads(response)
-            selected_pitch = pitches[selection["selected_index"]]
-            
-            self.logger.info(f"Selected pitch: {selected_pitch['title']}")
-            self.logger.debug(f"Selection rationale: {selection['rationale']}")
-            
-            return {
-                "status": "success",
-                "selected_pitch": selected_pitch,
-                "selection_details": selection
-            }
-            
-        except json.JSONDecodeError as e:
-            self.logger.error(f"Failed to parse LLM response as JSON: {e}")
-            raise
-        except Exception as e:
-            self.logger.error(f"Error selecting pitch: {e}", exc_info=True)
-            raise 
+        self.logger.info(f"Selected pitch: {selection['winner']}")
+        self.logger.debug(f"Selection criteria: {selection['selection_criteria']}")
+        
+        return selection 

@@ -4,7 +4,7 @@ import json
 import logging
 import random
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 
 from novelwriter_idea.config.llm import LLMConfig
 
@@ -82,49 +82,136 @@ class GenreVibeAgent:
         
         return main_genre, subgenre
 
-    def generate_tone_and_themes(self, genre: str, subgenre: str) -> Tuple[str, List[str]]:
+    async def generate_tone_and_themes(self, genre: str, subgenre: str) -> Tuple[str, List[str]]:
         """Generate tone and themes for the story.
         
         Args:
-            genre: Main genre (e.g., "science_fiction")
-            subgenre: Specific subgenre (e.g., "cyberpunk")
+            genre: Main genre category
+            subgenre: Specific subgenre
             
         Returns:
-            Tuple of (tone, themes)
+            Tuple of (tone, list_of_themes)
         """
-        logger.debug(f"Generating tone and themes for {subgenre} ({genre})")
-        
         prompt = f"""Generate a tone and themes for a {subgenre} story in the {genre} genre.
-        The tone should be a single word or short phrase describing the emotional/narrative style.
-        The themes should be 2-5 core ideas or concepts that the story explores.
+
+The tone should be a clear emotional/narrative style that fits the genre.
+The themes should be 2-5 core ideas that will drive the story.
+
+Return your response in this format:
+
+# Tone and Themes
+
+## Tone
+[Your tone description here]
+
+## Themes
+- [Theme 1]
+- [Theme 2]
+- [Theme 3]
+- [Theme 4]
+- [Theme 5]
+
+Make sure each theme is a clear, concise statement of a core idea or conflict.
+"""
+
+        response = await self._get_llm_response(prompt)
         
-        Format your response as JSON:
-        {{
-            "tone": "the tone here",
-            "themes": ["theme 1", "theme 2", "theme 3"]
-        }}
+        # Parse the markdown response
+        tone = ""
+        themes = []
+        
+        current_section = None
+        capturing_tone = False
+        
+        for line in response.split('\n'):
+            line = line.strip()
+            if not line:
+                continue
+                
+            if line.startswith('## Tone'):
+                current_section = 'tone'
+                capturing_tone = True
+            elif line.startswith('## Themes'):
+                current_section = 'themes'
+                capturing_tone = False
+            elif line.startswith('#'):
+                current_section = None
+                capturing_tone = False
+            elif current_section == 'tone' and capturing_tone:
+                if tone:
+                    tone += " " + line
+                else:
+                    tone = line
+            elif current_section == 'themes' and line.startswith('-'):
+                theme = line[1:].strip()
+                if theme:
+                    themes.append(theme)
+        
+        if not tone or not themes:
+            logger.error(f"Failed to parse tone and themes from response: {response}")
+            raise ValueError("Failed to parse tone and themes from response")
+            
+        logger.info(f"Generated tone: {tone}")
+        logger.debug(f"Generated themes: {themes}")
+        
+        return tone, themes
+
+    async def process(self, genre: Optional[str] = None) -> Dict:
+        """Process genre selection and tone/themes generation.
+        
+        Args:
+            genre: Optional specific genre to use. If None, randomly selects one.
+            
+        Returns:
+            Dict containing the selected genre, tone, and themes
         """
+        try:
+            # Select genre
+            main_genre, subgenre = self.select_genre(genre)
+            
+            # Generate tone and themes
+            tone, themes = await self.generate_tone_and_themes(main_genre, subgenre)
+            
+            return {
+                "status": "success",
+                "genre": main_genre,
+                "subgenre": subgenre,
+                "tone": tone,
+                "themes": themes
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in genre and vibe generation: {e}")
+            return {
+                "status": "error",
+                "error": str(e)
+            }
+
+    async def _get_llm_response(self, prompt: str) -> str:
+        """Get a response from the LLM.
         
-        logger.superdebug(f"Sending prompt to LLM: {prompt}")
+        Args:
+            prompt: The prompt to send to the LLM
+            
+        Returns:
+            The LLM's response as a string
+        """
+        logger.debug(f"Sending prompt to LLM: {prompt}")
         
         try:
-            response = self.llm_config.get_completion(prompt)
-            logger.superdebug(f"Received LLM response: {response}")
+            response = await self.llm_config.get_completion(prompt)
+            logger.superdebug(f"Raw LLM response: {response}")
             
-            result = json.loads(response)
-            tone = result["tone"]
-            themes = result["themes"]
+            # Clean up the response
+            cleaned = response.strip()
+            if cleaned.startswith("```") and cleaned.endswith("```"):
+                cleaned = cleaned[3:-3].strip()
+            if cleaned.startswith("markdown"):
+                cleaned = cleaned[8:].strip()
+                
+            logger.debug(f"Cleaned LLM response: {cleaned}")
+            return cleaned
             
-            logger.info(f"Generated tone: {tone}")
-            logger.info(f"Generated themes: {', '.join(themes)}")
-            logger.debug(f"Full generation result: {json.dumps(result, indent=2)}")
-            
-            return tone, themes
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse LLM response as JSON: {e}")
-            logger.debug(f"Raw response was: {response}")
-            raise ValueError("Failed to generate tone and themes: invalid JSON response") from e
-        except KeyError as e:
-            logger.error(f"Missing required field in LLM response: {e}")
-            logger.debug(f"Response content was: {response}")
-            raise ValueError("Failed to generate tone and themes: missing required field") from e 
+        except Exception as e:
+            logger.error(f"Error getting LLM response: {e}")
+            raise 

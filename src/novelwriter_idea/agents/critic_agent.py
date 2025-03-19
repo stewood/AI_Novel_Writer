@@ -1,112 +1,162 @@
 """Critic Agent for evaluating story pitches."""
 
-import json
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List, Any
 
+from novelwriter_idea.config.llm import LLMConfig
 from novelwriter_idea.agents.base_agent import BaseAgent
+
+logger = logging.getLogger(__name__)
 
 class CriticAgent(BaseAgent):
     """Agent responsible for evaluating story pitches."""
-    
-    def __init__(
-        self,
-        llm_config: Optional[Dict] = None,
-        logger: Optional[logging.Logger] = None
-    ):
+
+    def __init__(self, llm_config: LLMConfig):
         """Initialize the Critic Agent.
         
         Args:
             llm_config: Configuration for the LLM client
-            logger: Optional logger instance
         """
-        super().__init__(llm_config, logger)
-        self.logger.info("Initializing Critic Agent")
-    
-    async def process(
+        super().__init__(llm_config)
+        logger.info("Initializing Critic Agent")
+
+    async def evaluate_pitches(
         self,
-        pitches: List[Dict],
+        pitches: List[Dict[str, str]],
         genre: str,
+        subgenre: str,
         tone: str,
         themes: List[str]
-    ) -> Dict:
-        """Evaluate multiple story pitches based on various criteria.
+    ) -> Dict[str, Any]:
+        """Evaluate multiple story pitches.
         
         Args:
             pitches: List of story pitches to evaluate
-            genre: The target genre
-            tone: The target tone
-            themes: List of target themes
+            genre: The main genre category
+            subgenre: The specific subgenre
+            tone: The desired emotional/narrative tone
+            themes: List of core themes to explore
             
         Returns:
-            Dict containing evaluations for each pitch
+            Dict containing the evaluations
         """
-        self.logger.info(f"Evaluating {len(pitches)} pitches")
-        
-        evaluations = []
-        for i, pitch in enumerate(pitches):
-            self.logger.debug(f"Evaluating pitch {i+1}: {pitch['title']}")
-            
-            prompt = f"""Evaluate this story pitch for a {genre} story:
+        prompt = f"""Evaluate these story pitches for a {subgenre} story in the {genre} genre.
 
-Title: {pitch['title']}
-Hook: {pitch['hook']}
-Concept: {pitch['concept']}
-Conflict: {pitch['conflict']}
-Twist: {pitch['twist']}
+The story should have this tone: {tone}
 
-The story should have a {tone} tone and explore these themes: {', '.join(themes)}.
+And explore these themes:
+{chr(10).join(f'- {theme}' for theme in themes)}
 
-Evaluate the pitch on these criteria (score 1-10):
-1. Originality: How fresh and unique is the concept?
-2. Emotional Impact: How emotionally engaging is the story?
-3. Genre Fit: How well does it fit the {genre} genre?
-4. Theme Integration: How well does it incorporate the themes?
-5. Conflict Strength: How compelling is the central conflict?
-6. Hook Quality: How effective is the one-sentence hook?
-7. Twist Impact: How surprising and satisfying is the twist?
+For each pitch, evaluate:
+1. Originality (1-10)
+2. Emotional Impact (1-10)
+3. Genre Fit (1-10)
+4. Theme Integration (1-10)
+5. Commercial Potential (1-10)
 
-Format your response as JSON:
-{{
-    "scores": {{
-        "originality": score,
-        "emotional_impact": score,
-        "genre_fit": score,
-        "theme_integration": score,
-        "conflict_strength": score,
-        "hook_quality": score,
-        "twist_impact": score
-    }},
-    "overall_score": average_score,
-    "strengths": ["strength 1", "strength 2"],
-    "weaknesses": ["weakness 1", "weakness 2"],
-    "improvement_suggestions": ["suggestion 1", "suggestion 2"]
-}}
+Also provide:
+- Key Strengths
+- Areas for Improvement
+- Overall Score (average of all scores)
+
+Here are the pitches to evaluate:
+
+{chr(10).join(f'''# Pitch {i+1}
+## Title
+{pitch["title"]}
+
+## Hook
+{pitch["hook"]}
+
+## Premise
+{pitch["premise"]}
+
+## Main Conflict
+{pitch["main_conflict"]}
+
+## Unique Twist
+{pitch["unique_twist"]}
+''' for i, pitch in enumerate(pitches))}
+
+Return your response in this format for each pitch:
+
+# Evaluation 1
+## Scores
+- Originality: [score]
+- Emotional Impact: [score]
+- Genre Fit: [score]
+- Theme Integration: [score]
+- Commercial Potential: [score]
+- Overall Score: [average]
+
+## Key Strengths
+- [Strength 1]
+- [Strength 2]
+- [Strength 3]
+
+## Areas for Improvement
+- [Area 1]
+- [Area 2]
+- [Area 3]
+
+# Evaluation 2
+[Same format]
+
+# Evaluation 3
+[Same format]
 """
+
+        response = await self._get_llm_response(prompt)
+        self.logger.debug(f"Raw LLM response: {response}")
+        
+        # Parse the markdown response
+        evaluations = []
+        current_eval = {}
+        current_section = None
+        current_subsection = None
+        
+        lines = response.split('\n')
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+                
+            if line.startswith('# Evaluation'):
+                if current_eval:
+                    evaluations.append(current_eval)
+                current_eval = {
+                    'scores': {},
+                    'key_strengths': [],
+                    'areas_for_improvement': []
+                }
+            elif line.startswith('## '):
+                current_section = line[3:].lower()
+                current_subsection = None
+            elif line.startswith('- '):
+                if current_section == 'scores':
+                    score_line = line[2:].split(':')
+                    if len(score_line) == 2:
+                        score_name = score_line[0].strip().lower()
+                        try:
+                            score_value = float(score_line[1].strip())
+                            current_eval['scores'][score_name] = score_value
+                        except ValueError:
+                            self.logger.warning(f"Could not parse score: {line}")
+                elif current_section == 'key strengths':
+                    current_eval['key_strengths'].append(line[2:].strip())
+                elif current_section == 'areas for improvement':
+                    current_eval['areas_for_improvement'].append(line[2:].strip())
+        
+        # Add the last evaluation
+        if current_eval:
+            evaluations.append(current_eval)
             
-            try:
-                self.logger.debug("Sending prompt to LLM for evaluation")
-                response = self._get_completion(prompt)
-                
-                # Parse the response
-                evaluation = json.loads(response)
-                evaluation["title"] = pitch["title"]
-                evaluations.append(evaluation)
-                
-                self.logger.debug(f"Evaluation complete for '{pitch['title']}' with overall score {evaluation['overall_score']}")
-                
-            except json.JSONDecodeError as e:
-                self.logger.error(f"Failed to parse LLM response as JSON: {e}")
-                raise
-            except Exception as e:
-                self.logger.error(f"Error evaluating pitch: {e}", exc_info=True)
-                raise
+        if not evaluations:
+            raise ValueError("No evaluations found in response")
+            
+        self.logger.info(f"Generated {len(evaluations)} evaluations")
+        self.logger.debug(f"Evaluation scores: {[e['scores'].get('overall score', 0) for e in evaluations]}")
         
-        # Sort evaluations by overall score
-        evaluations.sort(key=lambda x: x["overall_score"], reverse=True)
-        
-        self.logger.info("Successfully evaluated all pitches")
         return {
-            "status": "success",
             "evaluations": evaluations
         } 
