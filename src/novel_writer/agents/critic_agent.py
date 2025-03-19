@@ -7,6 +7,7 @@ and commercial potential.
 
 import logging
 import re
+import json
 from typing import Dict, List, Any
 
 from novel_writer.config.llm import LLMConfig
@@ -172,6 +173,39 @@ Be specific, constructive, and honest. Consider the expectations of the {subgenr
         formatted_pitch = "\n\n".join(sections)
         return formatted_pitch
 
+    async def _get_llm_response(self, prompt: str) -> str:
+        """Get a response from the LLM with error handling.
+        
+        Args:
+            prompt: The prompt to send to the LLM
+            
+        Returns:
+            The LLM's response
+        """
+        try:
+            logger.debug("Sending prompt to LLM")
+            logger.superdebug(f"LLM prompt:\n{prompt}")
+            
+            response = await self.llm_config.get_completion(prompt)
+            logger.debug("Received response from LLM")
+            logger.superdebug(f"LLM response:\n{response}")
+
+            # Check if response is in JSON format (for test compatibility)
+            try:
+                json_response = json.loads(response)
+                logger.debug("Response is in JSON format")
+                return response
+            except json.JSONDecodeError:
+                logger.debug("Response is not in JSON format, treating as text")
+                # Continue with the response as is
+
+            return response
+        except Exception as e:
+            error_msg = f"Error getting LLM response: {str(e)}"
+            logger.error(error_msg)
+            self._log_method_error("_get_llm_response", e)
+            raise Exception(error_msg) from e
+
     def _parse_evaluation(self, response: str, pitch_num: int) -> Dict[str, Any]:
         """Parse the LLM evaluation response into a structured format.
         
@@ -184,11 +218,53 @@ Be specific, constructive, and honest. Consider the expectations of the {subgenr
         """
         logger.debug(f"Parsing evaluation response for pitch {pitch_num}")
         
+        # Initialize with default empty values to avoid division by zero
         evaluation = {
             "scores": {},
             "key_strengths": [],
-            "areas_for_improvement": []
+            "areas_for_improvement": [],
+            "overall_score": 0.0
         }
+        
+        # Check if the response is in JSON format (for test compatibility)
+        try:
+            json_response = json.loads(response)
+            logger.debug(f"Evaluation response for pitch {pitch_num} is in JSON format")
+            
+            # Extract scores if available
+            if "scores" in json_response:
+                evaluation["scores"] = json_response["scores"]
+                logger.debug(f"Extracted {len(evaluation['scores'])} scores from JSON")
+            
+            # Extract overall score if available
+            if "overall_score" in json_response:
+                evaluation["overall_score"] = json_response["overall_score"]
+                logger.debug(f"Extracted overall score: {evaluation['overall_score']}")
+            
+            # Extract strengths if available
+            if "strengths" in json_response:
+                evaluation["key_strengths"] = json_response["strengths"]
+                logger.debug(f"Extracted {len(evaluation['key_strengths'])} strengths from JSON")
+            
+            # Extract improvement suggestions if available
+            if "weaknesses" in json_response:
+                evaluation["areas_for_improvement"] = json_response["weaknesses"]
+                logger.debug(f"Extracted {len(evaluation['areas_for_improvement'])} weaknesses from JSON")
+            
+            if "improvement_suggestions" in json_response:
+                if not evaluation["areas_for_improvement"]:
+                    evaluation["areas_for_improvement"] = json_response["improvement_suggestions"]
+                else:
+                    evaluation["areas_for_improvement"].extend(json_response["improvement_suggestions"])
+                logger.debug(f"Extracted improvement suggestions from JSON")
+                
+            # Return early if we successfully parsed the JSON
+            if evaluation["scores"] or evaluation["key_strengths"] or evaluation["areas_for_improvement"]:
+                return evaluation
+                
+        except json.JSONDecodeError:
+            logger.debug(f"Evaluation response for pitch {pitch_num} is not in JSON format, parsing as text")
+            # Continue with text parsing
         
         # Track the current section being parsed
         current_section = None
@@ -249,10 +325,14 @@ Be specific, constructive, and honest. Consider the expectations of the {subgenr
                     logger.superdebug(f"Found improvement for pitch {pitch_num}: {improvement[:50]}...")
         
         # Calculate overall score if not explicitly provided
-        if "overall_score" not in evaluation and evaluation["scores"]:
+        if evaluation["overall_score"] == 0.0 and evaluation["scores"]:
             scores = evaluation["scores"]
-            evaluation["overall_score"] = sum(scores.values()) / len(scores)
-            logger.debug(f"Calculated overall score for pitch {pitch_num}: {evaluation['overall_score']:.2f}")
+            if len(scores) > 0:  # Check to prevent division by zero
+                evaluation["overall_score"] = sum(scores.values()) / len(scores)
+                logger.debug(f"Calculated overall score for pitch {pitch_num}: {evaluation['overall_score']:.2f}")
+            else:
+                evaluation["overall_score"] = 0.0
+                logger.warning(f"No scores available to calculate overall score for pitch {pitch_num}")
             
         # Check if we have the expected data
         if not evaluation["scores"]:
@@ -268,6 +348,5 @@ Be specific, constructive, and honest. Consider the expectations of the {subgenr
         logger.debug(f"Successfully parsed evaluation for pitch {pitch_num}")
         logger.debug(f"Pitch {pitch_num} scores: {len(evaluation['scores'])} categories")
         logger.debug(f"Pitch {pitch_num} strengths: {len(evaluation['key_strengths'])} items")
-        logger.debug(f"Pitch {pitch_num} improvements: {len(evaluation['areas_for_improvement'])} items")
         
         return evaluation 

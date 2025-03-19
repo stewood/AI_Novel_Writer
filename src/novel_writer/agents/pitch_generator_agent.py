@@ -7,6 +7,7 @@ title, hook, premise, main conflict, and unique twist.
 
 import logging
 import re
+import json
 from typing import Dict, List, Any
 
 from novel_writer.config.llm import LLMConfig
@@ -131,6 +132,39 @@ Be specific and concrete rather than vague or generic.
         self._log_method_end("generate_pitches", result=f"{num_pitches} pitches")
         return pitches
         
+    async def _get_llm_response(self, prompt: str) -> str:
+        """Get a response from the LLM with error handling.
+        
+        Args:
+            prompt: The prompt to send to the LLM
+            
+        Returns:
+            The LLM's response
+        """
+        try:
+            logger.debug("Sending prompt to LLM")
+            logger.superdebug(f"LLM prompt:\n{prompt}")
+            
+            response = await self.llm_config.get_completion(prompt)
+            logger.debug("Received response from LLM")
+            logger.superdebug(f"LLM response:\n{response}")
+
+            # Check if response is in JSON format (for test compatibility)
+            try:
+                json_response = json.loads(response)
+                logger.debug("Response is in JSON format")
+                return response
+            except json.JSONDecodeError:
+                logger.debug("Response is not in JSON format, treating as text")
+                # Continue with the response as is
+
+            return response
+        except Exception as e:
+            error_msg = f"Error getting LLM response: {str(e)}"
+            logger.error(error_msg)
+            self._log_method_error("_get_llm_response", e)
+            raise Exception(error_msg) from e
+
     def _parse_pitches_response(self, response: str) -> List[Dict[str, str]]:
         """Parse the LLM response to extract structured pitches.
         
@@ -141,6 +175,19 @@ Be specific and concrete rather than vague or generic.
             List of dictionaries, each containing a complete story pitch
         """
         logger.debug("Parsing LLM response into structured pitches")
+        
+        # Check if the response is in JSON format (for test compatibility)
+        try:
+            json_response = json.loads(response)
+            logger.debug("Response is in JSON format")
+            if isinstance(json_response, dict) and 'pitches' in json_response:
+                pitches = json_response.get('pitches', [])
+                if pitches:
+                    logger.info(f"Successfully extracted {len(pitches)} pitches from JSON response")
+                    return pitches
+        except json.JSONDecodeError:
+            logger.debug("Response is not in JSON format, treating as markdown")
+            # Continue with markdown parsing
         
         # Split response into individual pitches
         pitch_blocks = re.split(r'#\s*Pitch\s+\d+|---', response)
@@ -156,6 +203,9 @@ Be specific and concrete rather than vague or generic.
             
             # Extract title
             title_match = re.search(r'\*\*Title:\*\*\s*(.*?)(?:\*\*|\n)', block)
+            if not title_match:
+                title_match = re.search(r'##\s*Title\s*\n\s*(.*?)(?:\n\n|\n##)', block, re.DOTALL)
+            
             if title_match:
                 pitch['title'] = title_match.group(1).strip()
                 logger.debug(f"Extracted title: {pitch['title']}")
@@ -165,6 +215,9 @@ Be specific and concrete rather than vague or generic.
                 
             # Extract hook
             hook_match = re.search(r'\*\*Hook:\*\*\s*(.*?)(?:\*\*|\n\n)', block)
+            if not hook_match:
+                hook_match = re.search(r'##\s*Hook\s*\n\s*(.*?)(?:\n\n|\n##)', block, re.DOTALL)
+            
             if hook_match:
                 pitch['hook'] = hook_match.group(1).strip()
                 logger.debug(f"Extracted hook: {pitch['hook'][:30]}...")
@@ -174,6 +227,9 @@ Be specific and concrete rather than vague or generic.
                 
             # Extract premise
             premise_match = re.search(r'\*\*Premise:\*\*\s*(.*?)(?:\*\*Main|\*\*Conflict|\n\n\*\*)', block, re.DOTALL)
+            if not premise_match:
+                premise_match = re.search(r'##\s*Premise\s*\n\s*(.*?)(?:\n\n|\n##)', block, re.DOTALL)
+            
             if premise_match:
                 pitch['premise'] = premise_match.group(1).strip()
                 logger.debug(f"Extracted premise: {pitch['premise'][:30]}...")
@@ -183,6 +239,9 @@ Be specific and concrete rather than vague or generic.
                 
             # Extract main conflict
             conflict_match = re.search(r'\*\*Main Conflict:\*\*\s*(.*?)(?:\*\*Unique|\*\*Twist|\n\n\*\*)', block, re.DOTALL)
+            if not conflict_match:
+                conflict_match = re.search(r'##\s*Main Conflict\s*\n\s*(.*?)(?:\n\n|\n##)', block, re.DOTALL)
+            
             if conflict_match:
                 pitch['main_conflict'] = conflict_match.group(1).strip()
                 logger.debug(f"Extracted main conflict: {pitch['main_conflict'][:30]}...")
@@ -192,6 +251,9 @@ Be specific and concrete rather than vague or generic.
                 
             # Extract unique twist
             twist_match = re.search(r'\*\*Unique Twist:\*\*\s*(.*?)(?:\n\n|$)', block, re.DOTALL)
+            if not twist_match:
+                twist_match = re.search(r'##\s*Unique Twist\s*\n\s*(.*?)(?:\n\n|$)', block, re.DOTALL)
+            
             if twist_match:
                 pitch['unique_twist'] = twist_match.group(1).strip()
                 logger.debug(f"Extracted unique twist: {pitch['unique_twist'][:30]}...")
