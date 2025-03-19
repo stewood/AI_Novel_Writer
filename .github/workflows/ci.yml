@@ -32,6 +32,6 @@ jobs:
         
     - name: Run linting
       run: |
-        flake8 src/novelwriter_idea
-        black --check src/novelwriter_idea
-        isort --check-only src/novelwriter_idea 
+        flake8 src/novel_writer
+        black --check src/novel_writer
+        isort --check-only src/novel_writer 
