@@ -2,15 +2,15 @@
 
 import logging
 import sys
+import warnings
 from pathlib import Path
 from typing import Optional
 
 from rich.console import Console
 from rich.logging import RichHandler
 
-# Custom log level for super detailed debugging
-SUPERDEBUG = 5
-logging.addLevelName(SUPERDEBUG, "SUPERDEBUG")
+# Import main logging setup function
+from .logging import setup_logging as main_setup_logging, SUPERDEBUG
 
 def setup_logging(
     log_level: str = "INFO",
@@ -20,12 +20,21 @@ def setup_logging(
 ) -> None:
     """Set up logging configuration.
     
+    This is a compatibility function that forwards to the main logging setup function.
+    
     Args:
         log_level: Logging level (ERROR, WARN, INFO, DEBUG, SUPERDEBUG)
-        log_file: Path to log file. If None, only logs to console
+        log_file: Path to log file. If None, a default with timestamp will be used.
         console_output: Whether to output logs to console
-        rich_traceback: Whether to use rich tracebacks in console output
+        rich_traceback: Whether to use rich tracebacks in console output (ignored)
     """
+    # Show deprecation warning
+    warnings.warn(
+        "This logging_config module is deprecated. Use novelwriter_idea.config.logging directly.", 
+        DeprecationWarning, 
+        stacklevel=2
+    )
+    
     # Convert string level to numeric value
     numeric_level = getattr(logging, log_level.upper(), None)
     if not isinstance(numeric_level, int):
@@ -34,55 +43,13 @@ def setup_logging(
         else:
             raise ValueError(f"Invalid log level: {log_level}")
     
-    # Create logs directory if logging to file
-    if log_file:
-        log_path = Path(log_file)
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    # Base configuration
-    config = {
-        "level": numeric_level,
-        "format": "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        "datefmt": "%Y-%m-%d %H:%M:%S",
-        "handlers": []
-    }
-    
-    # Add console handler if requested
-    if console_output:
-        console = Console(force_terminal=True)
-        console_handler = RichHandler(
-            console=console,
-            rich_tracebacks=rich_traceback,
-            markup=True,
-            show_time=False
-        )
-        console_handler.setLevel(numeric_level)
-        config["handlers"].append(console_handler)
-    
-    # Add file handler if log file specified
-    if log_file:
-        file_handler = logging.FileHandler(log_file)
-        file_handler.setLevel(numeric_level)
-        formatter = logging.Formatter(config["format"], config["datefmt"])
-        file_handler.setFormatter(formatter)
-        config["handlers"].append(file_handler)
-    
-    # Apply configuration
-    logging.basicConfig(**config)
-    
-    # Set up the root logger
-    root_logger = logging.getLogger()
-    root_logger.setLevel(numeric_level)
-    
-    # Create logger for our package
-    logger = logging.getLogger("novelwriter_idea")
-    logger.setLevel(numeric_level)
-    
-    # Log initial setup
-    logger.info(f"Logging initialized at level {log_level}")
-    if log_file:
-        logger.info(f"Logging to file: {log_file}")
-    
+    # Forward to main setup function
+    main_setup_logging(
+        level=numeric_level,
+        log_file=log_file,
+        console=console_output
+    )
+
 def log_superdebug(self, message, *args, **kwargs):
     """Log at SUPERDEBUG level."""
     if self.isEnabledFor(SUPERDEBUG):

@@ -1,214 +1,397 @@
-"""Meeting Recorder Agent for compiling and formatting story idea outputs."""
+"""Meeting Recorder Agent for compiling and documenting idea generation results.
 
-import json
+This agent compiles the outputs from various agents in the idea generation workflow
+into a well-structured Markdown document that captures all relevant information.
+"""
+
 import logging
+import os
+import re
+import uuid
 from datetime import datetime
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Any, Optional, Tuple
 
-import yaml
-
-from novelwriter_idea.agents.base_agent import BaseAgent
 from novelwriter_idea.config.llm import LLMConfig
+from novelwriter_idea.agents.base_agent import BaseAgent
+from novelwriter_idea.utils.file_utils import sanitize_filename
+
+# Initialize logger
+logger = logging.getLogger(__name__)
 
 class MeetingRecorderAgent(BaseAgent):
-    """Agent responsible for compiling and formatting the final story idea output."""
+    """Agent responsible for compiling idea generation results into documentation.
+    
+    This agent takes the outputs from all previous agents in the workflow and 
+    synthesizes them into a well-structured Markdown document that captures
+    the idea generation process, key decisions, and the final selected pitch
+    with enhancements.
+    """
 
-    def __init__(self, llm_config: Optional[LLMConfig] = None, logger: Optional[logging.Logger] = None):
+    def __init__(self, llm_config: LLMConfig):
         """Initialize the Meeting Recorder Agent.
         
         Args:
-            llm_config: Optional LLM configuration for generating additional content
-            logger: Optional logger instance
+            llm_config: Configuration for the LLM client
         """
-        super().__init__(llm_config=llm_config, logger=logger)
-        self.logger.info("Initializing Meeting Recorder Agent")
-
-    def _generate_doc_id(self, title: str) -> str:
-        """Generate a unique document ID.
+        super().__init__(llm_config)
+        logger.info("Initializing Meeting Recorder Agent")
         
-        Args:
-            title: Story title to incorporate into ID
-        
-        Returns:
-            Unique document ID string
-        """
-        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")  # YYYYMMDDhhmmss format
-        sanitized_title = "".join(c.lower() for c in title if c.isalnum())[:30]
-        return f"idea_{sanitized_title}_{timestamp}"
-
-    def _generate_frontmatter(self, 
-        title: str,
+    async def compile_idea(
+        self,
+        selected_pitch: Dict[str, str],
+        selection_data: Dict[str, Any],
+        trope_analysis: Dict[str, Any],
         genre: str,
+        subgenre: str,
         tone: str,
         themes: List[str],
-        tags: Optional[List[str]] = None
-    ) -> Dict[str, Any]:
-        """Generate YAML frontmatter for the document.
+        output_dir: Optional[str] = None
+    ) -> Tuple[str, str]:
+        """Compile idea generation results into a structured Markdown document.
+        
+        Takes the winning pitch, selection rationale, and trope analysis to create
+        a comprehensive document that captures all relevant information about the 
+        generated story idea.
+        
+        Args:
+            selected_pitch: The winning story pitch
+            selection_data: Selection rationale and recommendations
+            trope_analysis: Analysis of tropes and suggested alternatives
+            genre: The main genre category
+            subgenre: The specific subgenre
+            tone: The desired tone for the story
+            themes: List of themes to explore
+            output_dir: Optional directory for saving the output file
+            
+        Returns:
+            Tuple containing (file_path, document_content)
+        """
+        self._log_method_start(
+            "compile_idea", 
+            pitch_title=selected_pitch.get("title", "Untitled"),
+            genre=genre,
+            subgenre=subgenre,
+            themes_count=len(themes),
+            has_output_dir=output_dir is not None
+        )
+        
+        logger.info(f"Compiling idea document for: {selected_pitch.get('title', 'Untitled')}")
+        logger.debug(f"Genre: {genre}, Subgenre: {subgenre}")
+        logger.debug(f"Tone: {tone[:50]}..." if len(tone) > 50 else f"Tone: {tone}")
+        logger.debug(f"Themes: {', '.join(themes[:3])}" + (f"... and {len(themes)-3} more" if len(themes) > 3 else ""))
+        
+        # Prepare document components
+        doc_title = selected_pitch.get("title", "Untitled")
+        doc_id = f"idea_{uuid.uuid4().hex[:8]}"
+        current_time = datetime.now().strftime("%Y%m%d-%H%M%S")
+        
+        logger.debug(f"Generated doc_id: {doc_id}")
+        logger.debug(f"Timestamp: {current_time}")
+        
+        # Create YAML frontmatter
+        frontmatter = self._create_frontmatter(
+            doc_id=doc_id,
+            title=doc_title,
+            genre=genre,
+            subgenre=subgenre,
+            tone=tone,
+            themes=themes,
+            selected_pitch=selected_pitch
+        )
+        
+        logger.debug(f"Created frontmatter with {len(frontmatter.split('\n'))} lines")
+        
+        # Format the document body
+        doc_body = self._format_document_body(
+            selected_pitch=selected_pitch,
+            selection_data=selection_data,
+            trope_analysis=trope_analysis,
+            genre=genre,
+            subgenre=subgenre,
+            tone=tone,
+            themes=themes
+        )
+        
+        logger.debug(f"Created document body with {len(doc_body.split('\n'))} lines")
+        
+        # Combine components into full document
+        doc_content = frontmatter + doc_body
+        
+        # Determine output file path
+        file_path = self._create_output_file_path(
+            title=doc_title,
+            timestamp=current_time,
+            output_dir=output_dir
+        )
+        
+        logger.info(f"Document compiled, saving to: {file_path}")
+        
+        # Create directory if needed
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        
+        # Write document to file
+        try:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(doc_content)
+            logger.info(f"Document saved successfully to {file_path}")
+        except Exception as e:
+            error_msg = f"Failed to save document: {str(e)}"
+            logger.error(error_msg)
+            self._log_method_error("compile_idea", Exception(error_msg))
+            
+        self._log_method_end("compile_idea", result=f"Document saved to {file_path}")
+        return file_path, doc_content
+        
+    def _create_frontmatter(
+        self,
+        doc_id: str,
+        title: str,
+        genre: str,
+        subgenre: str,
+        tone: str,
+        themes: List[str],
+        selected_pitch: Dict[str, str]
+    ) -> str:
+        """Create YAML frontmatter for the document.
+        
+        Args:
+            doc_id: Unique identifier for the document
+            title: Story title
+            genre: Main genre
+            subgenre: Specific subgenre
+            tone: Story tone
+            themes: List of themes
+            selected_pitch: The selected story pitch
+            
+        Returns:
+            YAML frontmatter string
+        """
+        logger.debug("Creating document frontmatter")
+        
+        # Format themes and tags for YAML
+        themes_yaml = ", ".join([f'"{theme}"' for theme in themes])
+        tags = [genre, subgenre] + [f"theme:{theme}" for theme in themes] + ["AI_generated"]
+        tags_yaml = ", ".join([f'"{tag}"' for tag in tags])
+        
+        # Extract elevator pitch (hook) from the selected pitch
+        elevator_pitch = selected_pitch.get("hook", "")
+        
+        # Format summary from the premise
+        summary = selected_pitch.get("premise", "")
+        
+        frontmatter = f"""---
+doc_type: "idea"
+doc_id: "{doc_id}"
+status: "winner"
+version: "v1"
+title: "{title}"
+tags: [{tags_yaml}]
+elevator_pitch: "{elevator_pitch}"
+genre: "{genre}"
+subgenre: "{subgenre}"
+tone: "{tone}"
+themes: [{themes_yaml}]
+summary: "{summary}"
+created_at: "{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+---
+
+"""
+        logger.superdebug(f"Frontmatter:\n{frontmatter}")
+        return frontmatter
+        
+    def _format_document_body(
+        self,
+        selected_pitch: Dict[str, str],
+        selection_data: Dict[str, Any],
+        trope_analysis: Dict[str, Any],
+        genre: str,
+        subgenre: str,
+        tone: str,
+        themes: List[str]
+    ) -> str:
+        """Format the main body of the document.
+        
+        Args:
+            selected_pitch: The winning story pitch
+            selection_data: Selection rationale and recommendations
+            trope_analysis: Analysis of tropes and suggested alternatives
+            genre: The main genre category
+            subgenre: The specific subgenre
+            tone: The desired tone for the story
+            themes: List of themes to explore
+            
+        Returns:
+            Formatted document body string
+        """
+        logger.debug("Formatting document body")
+        
+        # Format themes string
+        themes_str = ", ".join(themes)
+        
+        # Start with title and basic info
+        title = selected_pitch.get("title", "Untitled")
+        doc_body = [
+            f"# {title}",
+            "",
+            f"**Genre:** {subgenre} ({genre})",
+            f"**Tone:** {tone}",
+            f"**Themes:** {themes_str}",
+            ""
+        ]
+        
+        # Add hook and premise sections
+        doc_body.extend([
+            "## Elevator Pitch",
+            selected_pitch.get("hook", ""),
+            "",
+            "## Premise",
+            selected_pitch.get("premise", ""),
+            ""
+        ])
+        
+        # Add story components
+        doc_body.extend([
+            "## Story Components",
+            "",
+            "### Main Conflict",
+            selected_pitch.get("main_conflict", ""),
+            "",
+            "### Unique Twist",
+            selected_pitch.get("unique_twist", ""),
+            ""
+        ])
+        
+        # Add selection rationale if available
+        if selection_data and "selection_criteria" in selection_data:
+            doc_body.extend([
+                "## Selection Criteria",
+                ""
+            ])
+            for criterion in selection_data.get("selection_criteria", []):
+                doc_body.append(f"- {criterion}")
+            doc_body.append("")
+        
+        # Add development recommendations if available
+        if selection_data and "development_recommendations" in selection_data:
+            doc_body.extend([
+                "## Development Recommendations",
+                ""
+            ])
+            for recommendation in selection_data.get("development_recommendations", []):
+                doc_body.append(f"- {recommendation}")
+            doc_body.append("")
+        
+        # Add potential challenges if available
+        if selection_data and "potential_challenges" in selection_data:
+            doc_body.extend([
+                "## Potential Challenges",
+                ""
+            ])
+            for challenge in selection_data.get("potential_challenges", []):
+                doc_body.append(f"- {challenge}")
+            doc_body.append("")
+        
+        # Add trope analysis if available
+        if trope_analysis:
+            # Add identified tropes
+            if "identified_tropes" in trope_analysis and trope_analysis["identified_tropes"]:
+                doc_body.extend([
+                    "## Trope Analysis",
+                    "",
+                    "### Identified Tropes",
+                    ""
+                ])
+                for trope in trope_analysis["identified_tropes"]:
+                    name = trope.get("name", "")
+                    explanation = trope.get("explanation", "")
+                    level = trope.get("overuse_level", "")
+                    doc_body.append(f"- **{name}** ({level} overuse): {explanation}")
+                doc_body.append("")
+            
+            # Add suggested alternatives
+            if "suggested_alternatives" in trope_analysis and trope_analysis["suggested_alternatives"]:
+                doc_body.extend([
+                    "### Trope Alternatives",
+                    ""
+                ])
+                
+                for trope_name, alternatives in trope_analysis["suggested_alternatives"].items():
+                    doc_body.append(f"#### For '{trope_name}'")
+                    doc_body.append("")
+                    
+                    for alt in alternatives:
+                        alt_name = alt.get("name", "")
+                        description = alt.get("description", "")
+                        doc_body.append(f"- **{alt_name}**: {description}")
+                        
+                    doc_body.append("")
+                    
+            # Add summary if available
+            if "summary" in trope_analysis and trope_analysis["summary"]:
+                doc_body.extend([
+                    "### Summary",
+                    "",
+                    trope_analysis["summary"],
+                    ""
+                ])
+                
+        # Add notes section
+        doc_body.extend([
+            "## Notes",
+            "",
+            f"This story idea was generated by AI with the following parameters:",
+            f"- Genre: {genre}",
+            f"- Subgenre: {subgenre}",
+            f"- Tone: {tone}",
+            f"- Themes: {themes_str}",
+            "",
+            f"Generated on {datetime.now().strftime('%Y-%m-%d at %H:%M:%S')}",
+            ""
+        ])
+        
+        logger.debug(f"Document body sections: {len(doc_body)}")
+        formatted_body = "\n".join(doc_body)
+        return formatted_body
+        
+    def _create_output_file_path(
+        self,
+        title: str,
+        timestamp: str,
+        output_dir: Optional[str] = None
+    ) -> str:
+        """Create the output file path for the document.
         
         Args:
             title: Story title
-            genre: Story genre
-            tone: Story tone/mood
-            themes: List of story themes
-            tags: Optional additional tags
-        
+            timestamp: Timestamp string
+            output_dir: Optional output directory
+            
         Returns:
-            Dictionary of frontmatter fields
+            Full file path for the document
         """
-        doc_id = self._generate_doc_id(title)
+        logger.debug(f"Creating output file path for '{title}'")
         
-        # Combine all tags
-        all_tags = [
-            genre.lower().replace(" ", "_"),
-            tone.lower().replace(" ", "_"),
-            "ai_generated"
-        ]
-        all_tags.extend(t.lower().replace(" ", "_") for t in themes)
-        if tags:
-            all_tags.extend(t.lower().replace(" ", "_") for t in tags)
+        # Sanitize title for use in filenames
+        safe_title = sanitize_filename(title)
+        logger.debug(f"Sanitized title: '{safe_title}'")
         
-        return {
-            "doc_type": "idea",
-            "doc_id": doc_id,
-            "status": "winner",
-            "version": "v1",
-            "tags": sorted(list(set(all_tags))),  # Remove duplicates
-            "title": title,
-            "genre": genre,
-            "tone": tone,
-            "themes": themes
-        }
-
-    def _format_trope_section(self, trope_analysis: Dict[str, Any]) -> str:
-        """Format the trope analysis section.
+        # Create filename
+        filename = f"{safe_title}_{timestamp}.md"
         
-        Args:
-            trope_analysis: Dictionary containing trope analysis data
+        # Set up directory structure
+        if output_dir:
+            # Use specified output directory
+            directory = output_dir
+            logger.debug(f"Using specified output directory: {output_dir}")
+        else:
+            # Create default directory structure
+            base_dir = os.path.join(os.getcwd(), "ideas")
+            story_dir = os.path.join(base_dir, safe_title or "Untitled")
+            directory = story_dir
+            logger.debug(f"Using default directory structure: {directory}")
+            
+        # Combine directory and filename
+        file_path = os.path.join(directory, filename)
+        logger.debug(f"Created file path: {file_path}")
         
-        Returns:
-            Formatted markdown string
-        """
-        sections = []
-        
-        # Identified Tropes
-        sections.append("## Identified Tropes\n")
-        for trope in trope_analysis["identified_tropes"]:
-            sections.append(f"### {trope['trope']}\n")
-            sections.append(f"- **Description**: {trope['description']}")
-            sections.append(f"- **Common Usage**: {trope['common_usage']}")
-            sections.append(f"- **Current Handling**: {trope['current_handling']}")
-            sections.append(f"- **Originality Score**: {trope['originality_score']}/10\n")
-        
-        # Subversion Suggestions
-        sections.append("## Trope Subversion Suggestions\n")
-        for subversion in trope_analysis["subversion_suggestions"]:
-            sections.append(f"### {subversion['trope']}")
-            sections.append(f"- **Suggestion**: {subversion['suggestion']}")
-            sections.append(f"- **Impact**: {subversion['impact']}\n")
-        
-        # Original Elements
-        sections.append("## Original Elements\n")
-        for element in trope_analysis["original_elements"]:
-            sections.append(f"- {element}")
-        sections.append("\n")
-        
-        # Enhancement Suggestions
-        sections.append("## Enhancement Suggestions\n")
-        for enhancement in trope_analysis["enhancement_suggestions"]:
-            sections.append(f"### {enhancement['element']}")
-            sections.append(f"- **Suggestion**: {enhancement['suggestion']}")
-            sections.append(f"- **Rationale**: {enhancement['rationale']}\n")
-        
-        return "\n".join(sections)
-
-    async def process(self,
-        pitch: Dict[str, str],
-        genre: str,
-        tone: str,
-        themes: List[str],
-        trope_analysis: Dict[str, Any],
-        output_dir: Optional[Path] = None,
-        additional_tags: Optional[List[str]] = None
-    ) -> Dict[str, Any]:
-        """Compile and format the final story idea document.
-        
-        Args:
-            pitch: Dictionary containing the story pitch
-            genre: Story genre
-            tone: Story tone/mood
-            themes: List of story themes
-            trope_analysis: Dictionary containing trope analysis
-            output_dir: Optional output directory path
-            additional_tags: Optional additional tags to include
-        
-        Returns:
-            Dictionary containing status and file path
-        """
-        try:
-            self.logger.info(f"Compiling story idea document for: {pitch['title']}")
-            
-            # Generate frontmatter
-            frontmatter = self._generate_frontmatter(
-                title=pitch['title'],
-                genre=genre,
-                tone=tone,
-                themes=themes,
-                tags=additional_tags
-            )
-            
-            # Build document sections
-            sections = []
-            
-            # Add frontmatter
-            sections.append("---")
-            sections.append(yaml.dump(frontmatter, sort_keys=False))
-            sections.append("---\n")
-            
-            # Add pitch sections
-            sections.append(f"# {pitch['title']}\n")
-            sections.append("## Elevator Pitch")
-            sections.append(pitch['hook'])
-            sections.append("\n## Concept")
-            sections.append(pitch['concept'])
-            sections.append("\n## Core Conflict")
-            sections.append(pitch['conflict'])
-            if 'twist' in pitch:
-                sections.append("\n## Key Twist")
-                sections.append(pitch['twist'])
-            sections.append("\n")
-            
-            # Add trope analysis
-            sections.append(self._format_trope_section(trope_analysis))
-            
-            # Combine into final document
-            document = "\n".join(sections)
-            
-            # Generate filename
-            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-            sanitized_title = "".join(c.lower() for c in pitch['title'] if c.isalnum())
-            filename = f"{sanitized_title}_{timestamp}.md"
-            
-            # Determine output path
-            if output_dir:
-                output_path = output_dir / filename
-            else:
-                output_path = Path.cwd() / "ideas" / sanitized_title / filename
-            
-            # Ensure directory exists
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            # Write file
-            output_path.write_text(document, encoding='utf-8')
-            
-            self.logger.info(f"Successfully wrote story idea to: {output_path}")
-            
-            return {
-                "status": "success",
-                "file_path": str(output_path),
-                "doc_id": frontmatter["doc_id"]
-            }
-            
-        except Exception as e:
-            self.logger.error(f"Error compiling story idea document: {str(e)}")
-            raise 
+        return file_path 

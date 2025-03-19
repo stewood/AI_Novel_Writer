@@ -1,4 +1,9 @@
-"""Genre and Vibe Generator Agent for novel idea generation."""
+"""Genre and Vibe Generator Agent for novel idea generation.
+
+This agent is responsible for selecting a genre/subgenre and generating
+appropriate tone and themes for the story. It can either use a specified
+genre or randomly select one from a curated list.
+"""
 
 import json
 import logging
@@ -7,11 +12,18 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 
 from novelwriter_idea.config.llm import LLMConfig
+from novelwriter_idea.agents.base_agent import BaseAgent
 
+# Initialize logger
 logger = logging.getLogger(__name__)
 
-class GenreVibeAgent:
-    """Agent responsible for genre selection and tone/themes generation."""
+class GenreVibeAgent(BaseAgent):
+    """Agent responsible for genre selection and tone/themes generation.
+    
+    This agent selects a genre (randomly or based on user input) and generates
+    appropriate tone and themes that align with the selected genre. It serves as
+    the foundation for the idea generation process.
+    """
 
     def __init__(self, llm_config: LLMConfig, data_path: Optional[Path] = None):
         """Initialize the Genre and Vibe Generator Agent.
@@ -20,39 +32,65 @@ class GenreVibeAgent:
             llm_config: Configuration for the LLM client
             data_path: Optional path to the data directory. If None, uses default.
         """
-        logger.debug("Initializing Genre and Vibe Generator Agent")
-        self.llm_config = llm_config
+        super().__init__(llm_config)
+        logger.info("Initializing Genre and Vibe Generator Agent")
+        
         self.data_path = data_path
-        logger.superdebug(f"Using data path: {self.data_path}")
+        logger.debug(f"Using data path: {self.data_path}")
+        
         self.subgenres = self._load_subgenres()
-        logger.debug(f"Loaded {sum(len(v) for v in self.subgenres.values())} subgenres across {len(self.subgenres)} main genres")
+        logger.info(f"Loaded {sum(len(v) for v in self.subgenres.values())} subgenres across {len(self.subgenres)} main genres")
+        logger.superdebug(f"Full subgenres dictionary: {self.subgenres}")
 
     def _load_subgenres(self) -> Dict[str, List[str]]:
         """Load subgenres from the data file.
         
         Returns:
             Dictionary mapping main genres to lists of subgenres
+            
+        Raises:
+            FileNotFoundError: If the subgenres file is not found
+            JSONDecodeError: If the subgenres file contains invalid JSON
         """
+        self._log_method_start("_load_subgenres")
+        
         if self.data_path:
             data_file = self.data_path / "subgenres.json"
         else:
             data_file = Path(__file__).parent.parent / "data" / "subgenres.json"
         
         logger.debug(f"Loading subgenres from {data_file}")
+        
         try:
             with open(data_file, "r") as f:
                 data = json.load(f)
-                logger.superdebug(f"Loaded subgenres data: {json.dumps(data, indent=2)}")
-                return data
+                
+            # Log at SUPERDEBUG level
+            logger.superdebug(f"Loaded subgenres raw data: {json.dumps(data, indent=2)}")
+            
+            genres_count = len(data)
+            total_subgenres = sum(len(subgenres) for subgenres in data.values())
+            logger.debug(f"Loaded {genres_count} genres with {total_subgenres} total subgenres")
+            
+            self._log_method_end("_load_subgenres", result=f"{genres_count} genres, {total_subgenres} subgenres")
+            return data
+            
         except FileNotFoundError:
             logger.error(f"Subgenres file not found at {data_file}")
+            self._log_method_error("_load_subgenres", FileNotFoundError(f"Subgenres file not found at {data_file}"))
             raise
+            
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON in subgenres file: {e}")
+            self._log_method_error("_load_subgenres", e)
             raise
 
     def select_genre(self, genre: Optional[str] = None) -> Tuple[str, str]:
         """Select a genre and subgenre.
+        
+        If a specific genre is provided, attempts to find it in the available subgenres.
+        If no genre is provided or the specified genre is not found, selects a random
+        genre from the available options.
         
         Args:
             genre: Optional specific genre to use. If None, randomly selects one.
@@ -60,30 +98,42 @@ class GenreVibeAgent:
         Returns:
             Tuple of (main_genre, subgenre)
         """
-        logger.debug(f"Selecting genre (input: {genre})")
+        self._log_method_start("select_genre", genre=genre)
         
         if genre:
-            logger.debug(f"Attempting to find specified genre: {genre}")
+            logger.info(f"Attempting to find specified genre: {genre}")
             # If genre is specified, find it in our subgenres
             for main_genre, subgenres in self.subgenres.items():
                 logger.superdebug(f"Checking {main_genre} category for {genre}")
                 if genre.lower() in [s.lower() for s in subgenres]:
-                    logger.info(f"Using specified genre: {genre} (category: {main_genre})")
+                    logger.info(f"Found specified genre: {genre} (category: {main_genre})")
+                    self._log_method_end("select_genre", result=(main_genre, genre))
                     return main_genre, genre
+            
             logger.warning(f"Specified genre '{genre}' not found, falling back to random selection")
         
         # Random selection
-        main_genre = random.choice(list(self.subgenres.keys()))
-        logger.debug(f"Selected main genre: {main_genre}")
+        main_genres = list(self.subgenres.keys())
+        logger.superdebug(f"Available main genres for random selection: {main_genres}")
         
-        subgenre = random.choice(self.subgenres[main_genre])
+        main_genre = random.choice(main_genres)
+        logger.debug(f"Randomly selected main genre: {main_genre}")
+        
+        available_subgenres = self.subgenres[main_genre]
+        logger.superdebug(f"Available subgenres for {main_genre}: {available_subgenres}")
+        
+        subgenre = random.choice(available_subgenres)
+        # Log at INFO level as specified in the requirements
         logger.info(f"Selected random genre: {subgenre} ({main_genre})")
-        logger.superdebug(f"Available subgenres were: {self.subgenres[main_genre]}")
         
+        self._log_method_end("select_genre", result=(main_genre, subgenre))
         return main_genre, subgenre
 
     async def generate_tone_and_themes(self, genre: str, subgenre: str) -> Tuple[str, List[str]]:
         """Generate tone and themes for the story.
+        
+        Uses the LLM to generate an appropriate tone and set of themes that align
+        with the selected genre and subgenre.
         
         Args:
             genre: Main genre category
@@ -92,6 +142,10 @@ class GenreVibeAgent:
         Returns:
             Tuple of (tone, list_of_themes)
         """
+        self._log_method_start("generate_tone_and_themes", genre=genre, subgenre=subgenre)
+        
+        logger.info(f"Generating tone and themes for {subgenre} ({genre})")
+        
         prompt = f"""Generate a tone and themes for a {subgenre} story in the {genre} genre.
 
 The tone should be a clear emotional/narrative style that fits the genre.
@@ -113,8 +167,11 @@ Return your response in this format:
 
 Make sure each theme is a clear, concise statement of a core idea or conflict.
 """
-
+        logger.debug(f"Sending tone/themes prompt to LLM")
+        logger.superdebug(f"Full tone/themes prompt:\n{prompt}")
+        
         response = await self._get_llm_response(prompt)
+        logger.debug("Received tone/themes response from LLM")
         
         # Parse the markdown response
         tone = ""
@@ -123,15 +180,20 @@ Make sure each theme is a clear, concise statement of a core idea or conflict.
         current_section = None
         capturing_tone = False
         
-        for line in response.split('\n'):
+        logger.debug("Parsing tone and themes from LLM response")
+        for i, line in enumerate(response.split('\n')):
             line = line.strip()
             if not line:
                 continue
                 
+            logger.superdebug(f"Parsing line {i+1}: {line}")
+                
             if line.startswith('## Tone'):
+                logger.debug("Found tone section")
                 current_section = 'tone'
                 capturing_tone = True
             elif line.startswith('## Themes'):
+                logger.debug("Found themes section")
                 current_section = 'themes'
                 capturing_tone = False
             elif line.startswith('#'):
@@ -142,37 +204,76 @@ Make sure each theme is a clear, concise statement of a core idea or conflict.
                     tone += " " + line
                 else:
                     tone = line
+                logger.superdebug(f"Adding to tone: {line}")
             elif current_section == 'themes' and line.startswith('-'):
                 theme = line[1:].strip()
                 if theme:
                     themes.append(theme)
+                    logger.superdebug(f"Found theme: {theme}")
         
         if not tone or not themes:
-            logger.error(f"Failed to parse tone and themes from response: {response}")
-            raise ValueError("Failed to parse tone and themes from response")
+            error_msg = "Failed to parse tone and themes from response"
+            logger.error(f"{error_msg}: {response}")
+            self._log_method_error("generate_tone_and_themes", ValueError(error_msg))
+            raise ValueError(error_msg)
             
-        logger.info(f"Generated tone: {tone}")
-        logger.debug(f"Generated themes: {themes}")
+        logger.info(f"Generated tone: {tone[:50]}..." if len(tone) > 50 else f"Generated tone: {tone}")
+        logger.info(f"Generated {len(themes)} themes")
+        logger.debug(f"Complete tone: {tone}")
+        logger.debug(f"All themes: {themes}")
         
+        self._log_method_end("generate_tone_and_themes", result=(tone, themes))
         return tone, themes
 
-    async def process(self, genre: Optional[str] = None) -> Dict:
+    async def process(
+        self, 
+        genre: Optional[str] = None,
+        tone: Optional[str] = None,
+        themes: Optional[List[str]] = None
+    ) -> Dict:
         """Process genre selection and tone/themes generation.
+        
+        Main entry point for this agent. Handles the entire workflow of selecting
+        a genre and generating appropriate tone and themes.
         
         Args:
             genre: Optional specific genre to use. If None, randomly selects one.
+            tone: Optional specific tone to use. If None, generates one.
+            themes: Optional specific themes to use. If None, generates them.
             
         Returns:
             Dict containing the selected genre, tone, and themes
         """
+        self._log_method_start("process", genre=genre, tone=tone, themes=themes)
+        logger.info("Starting genre and vibe generation process")
+        
         try:
-            # Select genre
+            # Step 1: Select genre
+            logger.debug("Selecting genre")
             main_genre, subgenre = self.select_genre(genre)
+            logger.info(f"Selected genre: {main_genre}, subgenre: {subgenre}")
             
-            # Generate tone and themes
-            tone, themes = await self.generate_tone_and_themes(main_genre, subgenre)
+            # Step 2: Handle tone and themes based on input
+            # Use provided tone and themes or generate them
+            if tone and themes:
+                logger.info(f"Using provided tone and themes")
+                logger.debug(f"Tone: {tone}")
+                logger.debug(f"Themes: {themes}")
+            elif tone:
+                logger.info(f"Using provided tone, generating themes")
+                logger.debug(f"Tone: {tone}")
+                _, themes = await self.generate_tone_and_themes(main_genre, subgenre)
+            elif themes:
+                logger.info(f"Using provided themes, generating tone")
+                logger.debug(f"Themes: {themes}")
+                tone, _ = await self.generate_tone_and_themes(main_genre, subgenre)
+            else:
+                # Generate tone and themes
+                logger.debug("Generating tone and themes")
+                tone, themes = await self.generate_tone_and_themes(main_genre, subgenre)
             
-            return {
+            # Create result dictionary
+            result = {
                 "status": "success",
                 "genre": main_genre,
                 "subgenre": subgenre,
@@ -180,8 +281,16 @@ Make sure each theme is a clear, concise statement of a core idea or conflict.
                 "themes": themes
             }
             
+            logger.info(f"Successfully generated genre and vibe: {subgenre} with {len(themes)} themes")
+            logger.superdebug(f"Complete result: {result}")
+            
+            self._log_method_end("process", result=result)
+            return result
+            
         except Exception as e:
-            logger.error(f"Error in genre and vibe generation: {e}")
+            logger.error(f"Error in genre and vibe generation: {str(e)}")
+            self._log_method_error("process", e)
+            
             return {
                 "status": "error",
                 "error": str(e)
@@ -190,13 +299,16 @@ Make sure each theme is a clear, concise statement of a core idea or conflict.
     async def _get_llm_response(self, prompt: str) -> str:
         """Get a response from the LLM.
         
+        Send a prompt to the LLM and process the response.
+        
         Args:
             prompt: The prompt to send to the LLM
             
         Returns:
             The LLM's response as a string
         """
-        logger.debug(f"Sending prompt to LLM: {prompt}")
+        logger.debug(f"Sending prompt to LLM")
+        logger.superdebug(f"Full prompt: {prompt}")
         
         try:
             response = await self.llm_config.get_completion(prompt)
@@ -206,10 +318,12 @@ Make sure each theme is a clear, concise statement of a core idea or conflict.
             cleaned = response.strip()
             if cleaned.startswith("```") and cleaned.endswith("```"):
                 cleaned = cleaned[3:-3].strip()
+                logger.superdebug("Removed code block markers from response")
             if cleaned.startswith("markdown"):
                 cleaned = cleaned[8:].strip()
+                logger.superdebug("Removed markdown prefix from response")
                 
-            logger.debug(f"Cleaned LLM response: {cleaned}")
+            logger.debug(f"Cleaned LLM response")
             return cleaned
             
         except Exception as e:

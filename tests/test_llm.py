@@ -5,15 +5,15 @@ import logging
 from pathlib import Path
 
 from novelwriter_idea.config.llm import LLMConfig
-from novelwriter_idea.config.logging_config import setup_logging
+from novelwriter_idea.config.logging import setup_logging, SUPERDEBUG
 
 def test_llm_basic():
     """Test basic LLM functionality with SUPERDEBUG logging."""
     # Set up logging
     setup_logging(
-        log_level="SUPERDEBUG",
+        level=SUPERDEBUG,
         log_file="logs/llm_test.log",
-        console_output=True
+        console=True
     )
     logger = logging.getLogger(__name__)
     
