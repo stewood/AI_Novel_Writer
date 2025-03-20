@@ -13,30 +13,15 @@ setup(
     packages=find_packages(where="src"),
     package_dir={"": "src"},
     install_requires=[
-        "click>=8.0.0",
-        "pyyaml>=6.0.0",
-        "python-slugify>=8.0.0",
-        "rich>=10.0.0",
+        "aiohttp>=3.11.0",
         "openai>=1.0.0",
-        "python-dotenv>=1.0.0",
+        "pytest>=8.0.0",
+        "pytest-asyncio>=0.25.0",
+        "pytest-cov>=6.0.0",
+        "pyyaml>=6.0.0",
+        "rich>=13.0.0",
+        "typer>=0.9.0",
     ],
-    extras_require={
-        "dev": [
-            "pytest>=7.0.0",
-            "black>=23.0.0",
-            "isort>=5.0.0",
-            "flake8>=6.0.0",
-        ],
-        "test": [
-            "pytest>=7.0.0",
-            "pytest-asyncio>=0.23.0",
-        ],
-    },
-    entry_points={
-        "console_scripts": [
-            "novel_writer=novel_writer.cli:cli",
-        ],
-    },
     python_requires=">=3.8",
     author="Stephen Woodard",
     author_email="stewood@outlook.com",

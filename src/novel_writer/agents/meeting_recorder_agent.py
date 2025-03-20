@@ -13,7 +13,7 @@ from typing import Dict, List, Any, Optional, Tuple
 
 from novel_writer.config.llm import LLMConfig
 from novel_writer.agents.base_agent import BaseAgent
-from novel_writer.utils.file_utils import sanitize_filename
+from novel_writer.utils.file_ops import sanitize_filename
 
 # Initialize logger
 logger = logging.getLogger(__name__)

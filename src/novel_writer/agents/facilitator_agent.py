@@ -10,6 +10,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 import json
+import yaml
+from datetime import datetime
 
 from novel_writer.config.llm import LLMConfig
 from novel_writer.agents.base_agent import BaseAgent
@@ -20,6 +22,8 @@ from novel_writer.agents.improver_agent import ImproverAgent
 from novel_writer.agents.voter_agent import VoterAgent
 from novel_writer.agents.tropemaster_agent import TropemasterAgent
 from novel_writer.agents.meeting_recorder_agent import MeetingRecorderAgent
+from novel_writer.agents.plot_outliner_agent import PlotOutlinerAgent
+from novel_writer.utils.file_ops import slugify, ensure_directory_exists
 
 # Initialize logger
 logger = logging.getLogger(__name__)
@@ -88,6 +92,7 @@ class FacilitatorAgent(BaseAgent):
         self.voter_agent = VoterAgent(llm_config)
         self.tropemaster_agent = TropemasterAgent(llm_config)
         self.meeting_recorder_agent = MeetingRecorderAgent(llm_config)
+        self.plot_outliner_agent = PlotOutlinerAgent(llm_config)
         
         # Initialize state
         self.state = State()
@@ -737,4 +742,183 @@ class FacilitatorAgent(BaseAgent):
         self.logger.info(f"Final idea document compiled and saved to: {file_path}")
         self.logger.debug(f"Document length: {len(document_content)} characters")
         
-        return file_path, document_content 
+        return file_path, document_content
+
+    def parse_idea_file(self, content: str) -> Dict[str, Any]:
+        """Parse metadata from an idea file.
+        
+        Args:
+            content: Content of the idea file
+            
+        Returns:
+            Dictionary containing extracted metadata
+            
+        Raises:
+            ValueError: If required metadata is missing or invalid
+        """
+        logger.debug("Parsing idea file content")
+        
+        try:
+            # Split content into frontmatter and body
+            if not content.startswith('---'):
+                raise ValueError("Idea file must start with YAML frontmatter (---)")
+            
+            _, frontmatter, body = content.split('---', 2)
+            metadata = yaml.safe_load(frontmatter)
+            
+            # Validate required fields
+            required_fields = ['doc_type', 'title', 'genre', 'tone', 'themes', 'summary']
+            missing_fields = [field for field in required_fields if field not in metadata]
+            
+            if missing_fields:
+                raise ValueError(f"Missing required metadata fields: {', '.join(missing_fields)}")
+            
+            # Verify doc_type
+            if metadata['doc_type'] != 'idea':
+                raise ValueError(f"Invalid doc_type: {metadata['doc_type']}. Must be 'idea'")
+            
+            # Ensure themes is a list
+            if isinstance(metadata['themes'], str):
+                metadata['themes'] = [metadata['themes']]
+            
+            logger.debug(f"Successfully parsed metadata: {list(metadata.keys())}")
+            return metadata
+            
+        except Exception as e:
+            error_msg = f"Failed to parse idea file: {str(e)}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+    
+    async def generate_outline(
+        self,
+        idea_content: str,
+        output_path: Optional[Path] = None
+    ) -> Tuple[Path, str]:
+        """Generate a complete novel outline from an idea file.
+        
+        Args:
+            idea_content: Content of the idea file
+            output_path: Optional custom output path
+            
+        Returns:
+            Tuple of (output_path, outline_content)
+            
+        Raises:
+            ValueError: If idea file parsing fails
+        """
+        logger.info("Starting outline generation process")
+        
+        # Parse the idea file
+        try:
+            metadata = self.parse_idea_file(idea_content)
+            logger.debug("Successfully parsed idea metadata")
+        except ValueError as e:
+            logger.error(f"Failed to parse idea file: {str(e)}")
+            raise
+        
+        # Generate the outline using PlotOutlinerAgent
+        try:
+            outline_data = await self.plot_outliner_agent.generate_outline(
+                title=metadata['title'],
+                genre=metadata['genre'],
+                tone=metadata['tone'],
+                themes=metadata['themes'],
+                summary=metadata['summary']
+            )
+            logger.debug("Successfully generated outline data")
+            
+        except Exception as e:
+            error_msg = f"Failed to generate outline: {str(e)}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+        
+        # Format the outline as Markdown
+        try:
+            outline_content = self._format_outline_markdown(outline_data)
+            logger.debug("Successfully formatted outline as Markdown")
+            
+        except Exception as e:
+            error_msg = f"Failed to format outline: {str(e)}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+        
+        # Determine output path if not provided
+        if not output_path:
+            slugified_title = slugify(metadata['title'])
+            timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+            output_dir = Path('outlines') / slugified_title
+            ensure_directory_exists(output_dir)
+            output_path = output_dir / f"{slugified_title}-outline_{timestamp}.md"
+        
+        # Save the outline
+        try:
+            output_path.write_text(outline_content, encoding='utf-8')
+            logger.info(f"Saved outline to: {output_path}")
+            
+        except Exception as e:
+            error_msg = f"Failed to save outline: {str(e)}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+        
+        return output_path, outline_content
+    
+    def _format_outline_markdown(self, outline_data: Dict[str, Any]) -> str:
+        """Format the outline data as Markdown."""
+        try:
+            # Start with YAML frontmatter
+            now = datetime.now()
+            doc_id = f"outline_{now.strftime('%Y%m%d_%H%M%S')}"
+            
+            frontmatter = {
+                "doc_type": "outline",
+                "doc_id": doc_id,
+                "version": "v1",
+                "status": "draft",
+                "title": outline_data.get("metadata", {}).get("title", "Untitled"),
+                "genre": outline_data.get("metadata", {}).get("genre", "Unknown"),
+                "tone": outline_data.get("metadata", {}).get("tone", ""),
+                "themes": outline_data.get("metadata", {}).get("themes", []),
+                "summary": outline_data.get("metadata", {}).get("summary", "")
+            }
+            
+            md_lines = ["---"]
+            md_lines.extend(f"{k}: {v}" for k, v in frontmatter.items())
+            md_lines.append("---\n")
+            
+            # Add outline metadata section
+            md_lines.append("# Outline Metadata")
+            md_lines.append(f"- Title: {outline_data.get('metadata', {}).get('title', 'Untitled')}")
+            md_lines.append(f"- Genre: {outline_data.get('metadata', {}).get('genre', 'Unknown')}")
+            md_lines.append(f"- Tone: {outline_data.get('metadata', {}).get('tone', '')}")
+            md_lines.append(f"- Themes: {', '.join(outline_data.get('metadata', {}).get('themes', []))}\n")
+            
+            # Add story summary
+            md_lines.append("## Story Summary")
+            md_lines.append(outline_data.get("summary", "No summary provided."))
+            md_lines.append("")
+            
+            # Add chapter outlines
+            md_lines.append("## Chapter Outlines\n")
+            
+            for chapter in outline_data.get("chapters", []):
+                if not isinstance(chapter, dict):
+                    logger.error(f"Invalid chapter data: {chapter}")
+                    continue
+                    
+                md_lines.append(f"### Chapter {chapter.get('chapter_number')}: {chapter.get('chapter_title')}")
+                md_lines.append(f"\n**Act:** {chapter.get('act')}\n")
+                
+                md_lines.append("**Key Events:**")
+                for event in chapter.get("key_events", []):
+                    md_lines.append(f"- {event}")
+                md_lines.append("")
+                
+                md_lines.append(f"**Emotional Turn:** {chapter.get('emotional_turn', '')}\n")
+                md_lines.append(f"**Character Focus:** {', '.join(chapter.get('character_focus', []))}\n")
+                md_lines.append(f"**Summary:** {chapter.get('chapter_summary', '')}\n")
+                
+            return "\n".join(md_lines)
+            
+        except Exception as e:
+            logger.error(f"Error formatting outline: {str(e)}")
+            return "" 

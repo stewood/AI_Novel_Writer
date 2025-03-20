@@ -1,7 +1,7 @@
 # Novel Writer - Project Requirements and Development Guidelines
 
 ## Project Overview
-You are building a Python CLI tool called novelwriter_idea.
+You are building a Python CLI tool called novel_writer.
 
 Start by reading the full instruction list below and brainstorming the best structure before generating any code.
 
@@ -9,11 +9,31 @@ Do not begin writing any modules until you have planned out the folder structure
 
 After planning, create the scaffold including the CLI entry point, agents folder, logs folder, ideas output folder, and utility modules.
 
+### Environment Setup
+1. PowerShell Usage
+   - All commands should use PowerShell syntax (not bash/sh)
+   - Use `Remove-Item` instead of `rm`
+   - Use `Move-Item` instead of `mv`
+   - Use `Copy-Item` instead of `cp`
+   - Use `-Recurse -Force` for recursive operations
+
+2. Virtual Environment
+   - Always ensure you're in the virtual environment before running Python commands
+   - If package import errors occur, first check if you're in the venv
+   - Activate venv in PowerShell: `.\venv\Scripts\Activate.ps1`
+   - Install packages with: `python -m pip install package_name`
+   - If venv doesn't exist:
+     ```powershell
+     python -m venv venv
+     .\venv\Scripts\Activate.ps1
+     python -m pip install -r requirements.txt
+     ```
+
 ## Core Requirements
 
 ### CLI Structure
 - Support multiple subcommands
-- Primary command: `novelwriter_idea idea`
+- Primary command: `novel_writer idea`
 - Optional flags: --genre, --tone, --themes, --output
 
 ### Genre Selection
@@ -139,6 +159,26 @@ trope_suggestions: [alternative twists]
 2. Use appropriate test types
 3. Mock external dependencies
 4. Test edge cases
+
+### Testing Types
+1. Unit Tests (`/tests/`)
+   - Use pytest framework
+   - Mock external dependencies
+   - Focus on individual components
+   - Run with CI/CD pipeline
+
+2. Integration Tests (`/integration_tests/`)
+   - Test actual LLM interactions
+   - Use real API keys
+   - Manual execution only
+   - Helpful for debugging and development
+   - Not part of automated test suite
+
+3. Test Organization
+   - Keep unit tests in `/tests/`
+   - Keep integration tests in `/integration_tests/`
+   - Name integration tests descriptively (e.g., `test_llm_response_parsing.py`)
+   - Include sample data and expected outputs in integration tests
 
 ### Logging
 1. Use appropriate log levels

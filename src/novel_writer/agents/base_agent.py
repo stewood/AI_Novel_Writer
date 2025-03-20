@@ -3,6 +3,18 @@
 This module provides the BaseAgent class that serves as a foundation for all
 specialized agents in the novel_writer application, offering common 
 functionality including LLM interactions and logging.
+
+Example:
+    ```python
+    from novel_writer.agents.base_agent import BaseAgent
+    from novel_writer.config.llm import LLMConfig
+
+    class MyAgent(BaseAgent):
+        async def process(self, input_data: dict) -> dict:
+            # Get LLM response
+            response = await self._get_llm_response("Generate a story idea")
+            return {"result": response}
+    ```
 """
 
 import logging
@@ -20,6 +32,14 @@ class BaseAgent:
     This class provides common functionality for all agents including
     LLM configuration management and standardized response handling.
     All agent classes should inherit from this base class.
+    
+    Example:
+        ```python
+        class StoryAgent(BaseAgent):
+            async def generate_story(self, prompt: str) -> str:
+                response = await self._get_llm_response(prompt)
+                return response
+        ```
     """
 
     def __init__(self, llm_config: LLMConfig):
@@ -27,6 +47,12 @@ class BaseAgent:
         
         Args:
             llm_config: Configuration for the LLM client
+            
+        Example:
+            ```python
+            config = LLMConfig(api_key="your-api-key")
+            agent = MyAgent(config)
+            ```
         """
         logger.debug(f"{self.__class__.__name__} initializing")
         self.llm_config = llm_config
@@ -35,7 +61,8 @@ class BaseAgent:
     async def _get_llm_response(self, prompt: str) -> str:
         """Get a response from the LLM.
         
-        Send a prompt to the LLM and process the response.
+        Send a prompt to the LLM and process the response. This method handles
+        response cleaning, error handling, and logging.
         
         Args:
             prompt: The prompt to send to the LLM
@@ -45,6 +72,11 @@ class BaseAgent:
             
         Raises:
             Exception: If there is an error getting the response from the LLM
+            
+        Example:
+            ```python
+            response = await self._get_llm_response("Generate a story idea")
+            ```
         """
         logger.debug(f"{self.__class__.__name__} sending prompt to LLM")
         # Log the full prompt at SUPERDEBUG level for complete traceability
@@ -85,10 +117,18 @@ class BaseAgent:
     def _log_response_parsing(self, method_name: str, raw_data: str, parsed_data: Dict[str, Any]) -> None:
         """Log details about response parsing for debugging.
         
+        This method provides standardized logging for response parsing operations,
+        helping with debugging and monitoring.
+        
         Args:
             method_name: Name of the method doing the parsing
             raw_data: Raw response data being parsed
             parsed_data: The parsed data structure
+            
+        Example:
+            ```python
+            self._log_response_parsing("parse_story", raw_response, parsed_story)
+            ```
         """
         logger.debug(f"{self.__class__.__name__}.{method_name} successfully parsed response")
         logger.superdebug(f"{self.__class__.__name__}.{method_name} parsing details:")
@@ -98,9 +138,17 @@ class BaseAgent:
     def _log_method_start(self, method_name: str, **params) -> None:
         """Log the start of a method call with parameters.
         
+        This method provides standardized logging for method entry points,
+        including parameter logging with sensitive data filtering.
+        
         Args:
             method_name: Name of the method being called
             **params: Parameters passed to the method
+            
+        Example:
+            ```python
+            self._log_method_start("generate_story", title="My Story", genre="Fantasy")
+            ```
         """
         logger.debug(f"{self.__class__.__name__}.{method_name} started")
         # Filter out sensitive data if needed (e.g. API keys)

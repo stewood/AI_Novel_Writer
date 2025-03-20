@@ -10,6 +10,7 @@ import logging
 from typing import Optional, List, Dict, Tuple
 import httpx
 from openai import AsyncOpenAI
+import aiohttp
 
 # Initialize logger
 logger = logging.getLogger(__name__)
@@ -124,6 +125,31 @@ class APIKeyManager:
                 self.current_key_index = (self.current_key_index + 1) % len(self.paid_keys)
                 logger.debug(f"Rotated to next paid key index: {self.current_key_index}")
 
+    def get_api_key(self, use_free: bool = True) -> str:
+        """Get the next available API key.
+        
+        Args:
+            use_free: Whether to use a free API key. If True, returns a free key if available,
+                     otherwise returns a paid key. If False, returns a paid key if available.
+        
+        Returns:
+            str: The API key to use
+            
+        Raises:
+            ValueError: If no API keys are available
+        """
+        if use_free and self.free_keys:
+            key = self.free_keys[self.current_key_index]
+            self.current_key_index = (self.current_key_index + 1) % len(self.free_keys)
+            return key
+            
+        if self.paid_keys:
+            key = self.paid_keys[self.current_key_index]
+            self.current_key_index = (self.current_key_index + 1) % len(self.paid_keys)
+            return key
+            
+        raise ValueError("No API keys available")
+
 class LLMConfig:
     """Configuration for LLM integration.
     
@@ -137,17 +163,18 @@ class LLMConfig:
         base_url: API endpoint URL
         free_model: Model ID for free tier
         paid_model: Model ID for paid tier
-        temperature: Sampling temperature for generation
+        temperature: Sampling temperature for generation (0.0-1.0)
         max_tokens: Maximum tokens to generate per request
         _is_using_free_model: Whether currently using free tier model
     """
     
-    def __init__(self, api_key_manager: APIKeyManager = None, api_key: str = None):
+    def __init__(self, api_key_manager: APIKeyManager = None, api_key: str = None, base_url: str = None):
         """Initialize the LLM configuration.
         
         Args:
-            api_key_manager: API key manager to use
+            api_key_manager: API key manager to use for multiple keys
             api_key: Single API key to use (if manager not provided)
+            base_url: Optional base URL for the API
             
         Raises:
             ValueError: If neither api_key_manager nor api_key is provided
@@ -157,19 +184,19 @@ class LLMConfig:
         
         self.api_key_manager = api_key_manager
         self.single_api_key = api_key
-        self.base_url = "https://openrouter.ai/api/v1"
+        self.base_url = base_url or "https://openrouter.ai/api/v1"
         self.free_model = "google/gemma-3-27b-it:free"
         self.paid_model = "google/gemma-3-27b-it"
         self.temperature = 0.7
         self.max_tokens = 2000
-        self._is_using_free_model = True
+        self._is_using_free_model = False
     
     @property
     def model(self) -> str:
         """Get the current model to use.
         
         Returns:
-            The model identifier
+            The model identifier (free or paid tier)
         """
         return self.free_model if self._is_using_free_model else self.paid_model
     
@@ -196,79 +223,124 @@ class LLMConfig:
         """
         api_key = self._get_current_key()
         
-        default_headers = {
-            "Authorization": f"Bearer {api_key}",
-            "HTTP-Referer": "https://github.com/stewood/AI_Novel_Writer",
-            "X-Title": "AI Novel Writer - Stephen Woodard",
-            "X-Email": "stewood@outlook.com"
-        }
-        
-        return AsyncOpenAI(
+        # Initialize the client with the API key directly
+        client = AsyncOpenAI(
             base_url=self.base_url,
-            api_key="not-needed",  # API key is sent in headers
-            default_headers=default_headers,
-            http_client=httpx.AsyncClient()
+            api_key=api_key,  # Use the API key directly
+            http_client=httpx.AsyncClient(
+                timeout=60.0,
+                headers={
+                    "HTTP-Referer": "https://github.com/stewood/AI_Novel_Writer",
+                    "X-Title": "AI Novel Writer - Stephen Woodard",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json"
+                }
+            )
         )
+        
+        return client
 
-    async def get_completion(self, prompt: str, temperature: float = None) -> str:
+    async def get_completion(self, prompt: str) -> str:
         """Get a completion from the LLM.
         
+        This method sends a prompt to the LLM and returns the generated response.
+        It handles API key management, model selection, and error handling.
+        
         Args:
-            prompt: The prompt to send
-            temperature: Optional temperature override
+            prompt: The prompt to send to the LLM
             
         Returns:
-            The completion text
+            The generated text response
             
         Raises:
-            Exception: If there is an error getting the completion
+            Exception: If there is an error getting the response
         """
-        max_retries = 3
-        attempts = 0
-        last_exception = None
+        client = self.get_client()
         
-        while attempts < max_retries:
-            try:
-                client = self.get_client()
-                api_key = self._get_current_key()
-                current_model = self.model
-                
-                logger.debug(f"Requesting completion with model: {current_model}")
-                logger.superdebug(f"Using API key ending with: ...{api_key[-8:]}")
-                
-                messages = []
-                messages.append({"role": "user", "content": prompt})
+        try:
+            # Remove parameters that are set in the class to avoid duplicates
+            kwargs = {
+                "max_tokens": self.max_tokens,
+                "temperature": self.temperature,
+                "model": self.model
+            }
+            kwargs.pop('max_tokens', None)
+            kwargs.pop('temperature', None)
+            kwargs.pop('model', None)
+            
+            response = await client.chat.completions.create(
+                model=self.model,
+                messages=[{
+                    "role": "system",
+                    "content": "You are a helpful AI assistant."
+                }, {
+                    "role": "user",
+                    "content": prompt
+                }],
+                **kwargs
+            )
+            
+            return response.choices[0].message.content
+            
+        except Exception as e:
+            logger.error(f"Error in get_completion: {str(e)}")
+            raise
 
-                response = await client.chat.completions.create(
-                    model=current_model,
-                    messages=messages,
-                    temperature=temperature or self.temperature,
-                    max_tokens=self.max_tokens
-                )
-                content = response.choices[0].message.content
-                return content
+    async def generate_text(self, prompt: str) -> str:
+        """Generate text using the LLM.
+        
+        This method is an alias for get_completion, providing a more intuitive
+        name for text generation tasks.
+        
+        Args:
+            prompt: The prompt to send to the LLM
+            
+        Returns:
+            The generated text response
+            
+        Raises:
+            Exception: If there is an error generating the text
+        """
+        return await self.get_completion(prompt)
+
+    def set_temperature(self, temperature: float) -> None:
+        """Set the sampling temperature for generation.
+        
+        Args:
+            temperature: Value between 0.0 and 1.0
+                - 0.0: More deterministic, focused outputs
+                - 1.0: More creative, diverse outputs
                 
-            except Exception as e:
-                last_exception = e
-                error_msg = f"Error making request: {str(e)}"
-                logger.error(error_msg)
+        Raises:
+            ValueError: If temperature is not between 0.0 and 1.0
+        """
+        if not 0.0 <= temperature <= 1.0:
+            raise ValueError("Temperature must be between 0.0 and 1.0")
+        self.temperature = temperature
+        
+    def set_max_tokens(self, max_tokens: int) -> None:
+        """Set the maximum number of tokens to generate.
+        
+        Args:
+            max_tokens: Maximum number of tokens (1-4000)
                 
-                # Check if this is a rate limit or quota error
-                error_str = str(e).lower()
-                if "rate limit" in error_str or "quota" in error_str or "capacity" in error_str:
-                    if self.api_key_manager:
-                        logger.warning(f"API key exhausted, rotating to next key")
-                        self.api_key_manager.mark_key_exhausted(api_key)
-                    else:
-                        # Can't rotate with a single key
-                        logger.error("Single API key exhausted with no fallback")
-                        break
-                else:
-                    # Other error, don't retry
-                    break
-                    
-                attempts += 1
-                
-        # If we got here, all retries failed
-        logger.error(f"All attempts failed after {attempts} retries")
-        raise last_exception 
+        Raises:
+            ValueError: If max_tokens is not between 1 and 4000
+        """
+        if not 1 <= max_tokens <= 4000:
+            raise ValueError("Max tokens must be between 1 and 4000")
+        self.max_tokens = max_tokens
+
+    def _get_api_key(self) -> str:
+        """Get an API key to use.
+        
+        Returns:
+            API key string
+        """
+        if self.single_api_key:
+            return self.single_api_key
+            
+        if self.api_key_manager:
+            return self.api_key_manager.get_api_key(self._is_using_free_model)
+            
+        raise Exception("No API key available") 

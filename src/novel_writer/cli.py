@@ -15,13 +15,25 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any, Callable
 from dotenv import load_dotenv
 import click
+import subprocess
 
 from novel_writer.agents.facilitator_agent import FacilitatorAgent
 from novel_writer.config.llm import LLMConfig, APIKeyManager
 from novel_writer.config.logging import setup_logging, SUPERDEBUG
+from novel_writer.utils.file_ops import slugify
 
 # Initialize logger
 logger = logging.getLogger(__name__)
+
+def ensure_cursor_visible():
+    """Ensure the console cursor is visible."""
+    if sys.platform == 'win32':
+        try:
+            # Use PowerShell to set cursor visibility
+            subprocess.run(['powershell', '-Command', '[Console]::CursorVisible = $true'], check=True)
+            logger.debug("Set console cursor to visible")
+        except Exception as e:
+            logger.warning(f"Failed to set cursor visibility: {e}")
 
 def create_parser() -> argparse.ArgumentParser:
     """Create and configure the argument parser.
@@ -69,11 +81,15 @@ def create_parser() -> argparse.ArgumentParser:
     idea_parser.add_argument("--themes", nargs="+", help="Specify themes to explore")
     idea_parser.add_argument("--output", help="Path for the output file")
     
+    # Outline command
+    outline_parser = subparsers.add_parser("outline", help="Generate a story outline")
+    outline_parser.add_argument("--idea-path", required=True, help="Path to the input idea markdown file")
+    outline_parser.add_argument("--output", help="Path for the output file")
+    
     # Future commands can be added here
-    # outline_parser = subparsers.add_parser("outline", help="Generate a story outline")
     # scene_parser = subparsers.add_parser("scene", help="Generate a scene description")
     
-    logger.debug("Argument parser created with subcommands: idea")
+    logger.debug("Argument parser created with subcommands: idea, outline")
     return parser
 
 def print_status(message: str, emoji: str = "📝") -> None:
@@ -261,7 +277,7 @@ def _create_progress_tracker() -> Callable[[int], None]:
     """
     logger.debug("Creating progress tracker function")
     
-    steps = [
+    idea_steps = [
         "Selecting genre and tone",
         "Generating story pitches",
         "Evaluating story pitches",
@@ -270,6 +286,19 @@ def _create_progress_tracker() -> Callable[[int], None]:
         "Analyzing story tropes",
         "Compiling final document"
     ]
+    
+    outline_steps = [
+        "Parsing idea file",
+        "Generating chapter outlines"
+    ]
+    
+    # Determine which steps to use based on the command
+    import inspect
+    caller_frame = inspect.currentframe().f_back
+    if 'outline' in caller_frame.f_code.co_name:
+        steps = outline_steps
+    else:
+        steps = idea_steps
     
     total_steps = len(steps)
     logger.debug(f"Progress tracker created with {total_steps} steps")
@@ -611,9 +640,198 @@ async def _generate_idea_with_progress(
         print_status(f"Error: {error_msg}", "❌")
         return {"status": "error", "error": error_msg}
 
+async def run_outline_command(idea_path: str, output: Optional[str] = None) -> Dict[str, Any]:
+    """Run the outline generation command.
+    
+    Takes an existing idea file and generates a detailed 24-chapter outline.
+    
+    Args:
+        idea_path: Path to the input idea markdown file
+        output: Optional custom output path
+        
+    Returns:
+        Dictionary containing the result of the outline generation process
+    """
+    logger.info("Starting outline generation command")
+    logger.debug(f"Input idea file: {idea_path}")
+    logger.debug(f"Output path: {output}")
+    
+    logger.info("Starting AI Novel Outline Generator...")
+    
+    # Check if idea file exists
+    if not os.path.exists(idea_path):
+        error_msg = f"Idea file not found: {idea_path}"
+        logger.error(error_msg)
+        logger.info(f"Error: {error_msg}")
+        raise FileNotFoundError(error_msg)
+    
+    # Setup LLM configuration
+    print_status("Setting up AI configuration...", "⚙️")
+    try:
+        llm_config = setup_llm_config()
+        logger.debug("LLM configuration setup completed")
+    except Exception as e:
+        error_msg = f"Failed to set up LLM configuration: {str(e)}"
+        logger.error(error_msg)
+        logger.error(traceback.format_exc())
+        print_status(f"Error: {error_msg}", "❌")
+        return {"status": "error", "error": error_msg}
+    
+    # Initialize facilitator agent
+    try:
+        facilitator = FacilitatorAgent(llm_config)
+        logger.debug("Facilitator agent initialized")
+    except Exception as e:
+        error_msg = f"Failed to initialize Facilitator Agent: {str(e)}"
+        logger.error(error_msg)
+        logger.error(traceback.format_exc())
+        print_status(f"Error: {error_msg}", "❌")
+        return {"status": "error", "error": error_msg}
+    
+    # Read and parse the idea file
+    try:
+        with open(idea_path, 'r', encoding='utf-8') as f:
+            idea_content = f.read()
+            logger.debug("Successfully read idea file")
+            logger.superdebug(f"Idea file contents: {idea_content}")
+    except Exception as e:
+        error_msg = f"Failed to read idea file: {str(e)}"
+        logger.error(error_msg)
+        logger.error(traceback.format_exc())
+        print_status(f"Error: {error_msg}", "❌")
+        return {"status": "error", "error": error_msg}
+    
+    # Extract story title from idea file frontmatter
+    # TODO: Implement proper YAML frontmatter parsing
+    story_title = "untitled"  # Default title
+    try:
+        import yaml
+        # Simple frontmatter extraction
+        if idea_content.startswith('---'):
+            _, frontmatter, _ = idea_content.split('---', 2)
+            metadata = yaml.safe_load(frontmatter)
+            if 'title' in metadata:
+                story_title = metadata['title']
+                logger.debug(f"Extracted story title: {story_title}")
+    except Exception as e:
+        logger.warning(f"Failed to extract story title from frontmatter: {str(e)}")
+        logger.warning("Using default title 'untitled'")
+    
+    # Determine output path
+    if output:
+        output_path = Path(output)
+    else:
+        # Create default output path: outlines/story-title/
+        slugified_title = slugify(story_title)
+        output_dir = Path('outlines') / slugified_title
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate filename with timestamp
+        from datetime import datetime
+        timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+        output_path = output_dir / f"{slugified_title}-outline_{timestamp}.md"
+    
+    logger.info(f"Output will be saved to: {output_path}")
+    print_status(f"Output will be saved to: {output_path}", "📂")
+    
+    # Create progress tracker
+    logger.debug("Creating progress tracker")
+    progress_tracker = _create_progress_tracker()
+    
+    # Generate outline with progress updates
+    try:
+        logger.info("Starting outline generation with progress tracking")
+        result = await _generate_outline_with_progress(
+            facilitator=facilitator,
+            idea_content=idea_content,
+            output_path=output_path,
+            progress_tracker=progress_tracker
+        )
+        
+        logger.info("Outline generation process completed")
+        logger.debug(f"Outline generation result status: {result.get('status', 'unknown')}")
+        
+        return result
+        
+    except Exception as e:
+        error_msg = f"Outline generation failed: {str(e)}"
+        logger.error(error_msg)
+        logger.error(traceback.format_exc())
+        print_status(f"Error: {error_msg}", "❌")
+        return {"status": "error", "error": error_msg}
+
+async def _generate_outline_with_progress(
+    facilitator: FacilitatorAgent,
+    idea_content: str,
+    output_path: Path,
+    progress_tracker: Callable[[int], None]
+) -> Dict[str, Any]:
+    """Generate the outline with progress tracking.
+    
+    Args:
+        facilitator: The FacilitatorAgent instance
+        idea_content: Content of the idea file
+        output_path: Path where the outline should be saved
+        progress_tracker: Callback function for progress updates
+        
+    Returns:
+        Dictionary containing the generation results
+    """
+    logger.info("Starting outline generation with progress tracking")
+    
+    try:
+        # Step 1: Parse and validate idea file
+        logger.info("STEP 1: Parsing idea file")
+        progress_tracker(0)
+        
+        try:
+            metadata = facilitator.parse_idea_file(idea_content)
+            logger.debug(f"Successfully parsed metadata: {list(metadata.keys())}")
+            print_status(f"Using story: {metadata['title']}", "📖")
+            
+        except ValueError as e:
+            error_msg = f"Invalid idea file: {str(e)}"
+            logger.error(error_msg)
+            print_status(f"Error: {error_msg}", "❌")
+            return {"status": "error", "error": error_msg}
+        
+        # Step 2: Generate the outline
+        logger.info("STEP 2: Generating chapter outlines")
+        progress_tracker(1)
+        
+        try:
+            output_path, outline_content = await facilitator.generate_outline(
+                idea_content=idea_content,
+                output_path=output_path
+            )
+            
+            logger.debug(f"Generated outline saved to: {output_path}")
+            print_status("Generated complete 24-chapter outline", "✅")
+            
+            return {
+                "status": "success",
+                "output_path": str(output_path),
+                "content": outline_content
+            }
+            
+        except Exception as e:
+            error_msg = f"Failed to generate outline: {str(e)}"
+            logger.error(error_msg)
+            logger.error(traceback.format_exc())
+            print_status(f"Error: {error_msg}", "❌")
+            return {"status": "error", "error": error_msg}
+            
+    except Exception as e:
+        error_msg = f"Unexpected error in outline generation: {str(e)}"
+        logger.error(error_msg)
+        logger.error(traceback.format_exc())
+        print_status(f"Error: {error_msg}", "❌")
+        return {"status": "error", "error": error_msg}
+
 @click.group()
 def cli():
     """AI-powered novel writing assistant."""
+    ensure_cursor_visible()
     pass
 
 @cli.command()
@@ -640,6 +858,35 @@ def idea(genre, tone, themes, output, log_level, log_file, console_log):
     
     # Run the idea command
     asyncio.run(run_idea_command(args))
+
+@cli.command()
+@click.option('--idea-path', required=True, help='Path to the input idea markdown file')
+@click.option('--output', help='Path for the output file')
+@click.option('--log-level', type=click.Choice(['ERROR', 'WARN', 'INFO', 'DEBUG', 'SUPERDEBUG']), default='INFO', help='Set the logging level')
+@click.option('--log-file', help='Path to the log file')
+@click.option('--console-log', is_flag=True, help='Enable detailed logging to console')
+def outline(idea_path: str, output: Optional[str], log_level: str, log_file: Optional[str], console_log: bool):
+    """Generate a 24-chapter novel outline from an existing idea file."""
+    # Set up logging configuration
+    setup_logging(log_level, log_file, console_log)
+    logger.debug("Starting outline command")
+    
+    try:
+        # Run the outline command asynchronously
+        result = asyncio.run(run_outline_command(idea_path, output))
+        
+        if result.get("status") == "success":
+            print_status(f"Outline generated successfully! Saved to: {result['output_path']}", "✨")
+            sys.exit(0)
+        else:
+            print_status(f"Error: {result.get('error', 'Unknown error')}", "❌")
+            sys.exit(1)
+            
+    except Exception as e:
+        logger.error(f"Outline command failed: {str(e)}")
+        logger.error(traceback.format_exc())
+        print_status(f"Error: {str(e)}", "❌")
+        sys.exit(1)
 
 if __name__ == '__main__':
     cli() 
